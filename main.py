@@ -12,6 +12,7 @@ from parser import Parser
 from compiler import Compiler
 from lexer import Lexer
 from assembly_generator import AssemblyGenerator
+from indentation_checker import IndentationChecker, check_indentation
 
 # --- CLASE TEXTO PERSONALIZADO (PROXY) ---
 # Esta clase arregla el bug de que no se actualicen los números
@@ -307,7 +308,21 @@ class SimuladorGo:
         self.texto_tokens.delete("1.0", tk.END)
         self.consola.delete("1.0", tk.END)
         
-        # Crear instancia del Lexer
+        # 1. VALIDAR INDENTACIÓN PRIMERO
+        try:
+            checker = IndentationChecker(codigo)
+            errors = checker.check()
+            if errors:
+                self.consola.insert(tk.END, "❌ ERRORES DE INDENTACIÓN DETECTADOS:\n\n", "error")
+                for line_num, message in errors:
+                    self.consola.insert(tk.END, f"  Línea {line_num}: {message}\n", "error")
+                self.consola.insert(tk.END, "\n⚠️ Por favor, corrige la indentación antes de continuar.\n", "error")
+                return None
+        except Exception as e:
+            self.consola.insert(tk.END, f"Error al validar indentación: {e}\n", "error")
+            return None
+        
+        # 2. Crear instancia del Lexer
         lexer_instancia = Lexer(codigo)
         try:
             lista_tokens = lexer_instancia.tokenize()
@@ -324,16 +339,54 @@ class SimuladorGo:
             return None
 
     def accion_ejecutar(self, event=None):
+        """Ejecutar código - Pipeline completo: Compilar C + Generar ASM + Ejecutar"""
         lista_tokens = self.procesar_tokens()
         if lista_tokens:
-            self.notebook.select(self.tab_consola) 
-            # Quita 'self.consola' de aquí, el Parser solo recibe los tokens
             mi_parser = Parser(lista_tokens) 
             try:
                 program = mi_parser.parse()
                 if program:
-                    interpreter = Interpreter(program, self.consola)
-                    interpreter.run()
+                    # 1. COMPILAR A C
+                    try:
+                        self.output_c.delete("1.0", tk.END)
+                        mi_compiler = Compiler(program)
+                        codigo_c = mi_compiler.compile()
+                        self.output_c.insert(tk.END, codigo_c)
+                        self.consola.insert(tk.END, "✅ Código C generado\n")
+                    except Exception as e:
+                        self.output_c.delete("1.0", tk.END)
+                        self.output_c.insert(tk.END, f"Error de Compilación: {e}\n")
+                        self.consola.insert(tk.END, f"⚠️ Error al compilar a C: {e}\n")
+                    
+                    # 2. GENERAR ENSAMBLADOR
+                    try:
+                        asm_gen = AssemblyGenerator(program)
+                        tac_code, asm_code = asm_gen.generate()
+                        
+                        # Mostrar código intermedio (TAC)
+                        self.output_tac.delete("1.0", tk.END)
+                        self.output_tac.insert(tk.END, tac_code)
+                        
+                        # Mostrar código ensamblador
+                        self.output_asm.delete("1.0", tk.END)
+                        self.output_asm.insert(tk.END, asm_code)
+                        
+                        self.consola.insert(tk.END, "✅ Código ensamblador generado\n")
+                    except Exception as e:
+                        self.output_asm.delete("1.0", tk.END)
+                        self.output_asm.insert(tk.END, f"Error al generar ensamblador: {e}\n")
+                        self.consola.insert(tk.END, f"⚠️ Error al generar ASM: {e}\n")
+                    
+                    # 3. EJECUTAR
+                    self.consola.insert(tk.END, "\n=== EJECUCIÓN DEL PROGRAMA ===\n")
+                    self.notebook.select(self.tab_consola)
+                    try:
+                        interpreter = Interpreter(program, self.consola)
+                        interpreter.run()
+                        self.consola.insert(tk.END, "\n✅ Ejecución completada\n")
+                    except Exception as e:
+                        self.consola.insert(tk.END, f"\n❌ Error de ejecución: {e}\n")
+                        
             except Exception as e:
                 self.consola.insert(tk.END, f"Error de Sintaxis: {e}\n", "error")
 

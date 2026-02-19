@@ -251,7 +251,7 @@ class AssemblyGenerator:
     def gen_inc_dec(self, stmt: IncDecStmt):
         """Genera TAC para incremento/decremento"""
         var = self.gen_expression(stmt.expr)
-        op = "+" if stmt.op == "++" else "-"
+        op = "+" if stmt.operator == "++" else "-"
         temp = self.new_temp()
         self.emit(op, var, "1", temp)
         self.emit("ASSIGN", temp, result=var)
