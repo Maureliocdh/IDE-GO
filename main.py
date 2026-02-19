@@ -11,6 +11,7 @@ import lexer
 from parser import Parser
 from compiler import Compiler
 from lexer import Lexer
+from assembly_generator import AssemblyGenerator
 
 # --- CLASE TEXTO PERSONALIZADO (PROXY) ---
 # Esta clase arregla el bug de que no se actualicen los números
@@ -107,6 +108,9 @@ class SimuladorGo:
         terminal_menu = tk.Menu(menubar, tearoff=0, bg="#333", fg="white")
         terminal_menu.add_command(label="Ejecutar Código (F5)", command=self.accion_ejecutar)
         terminal_menu.add_command(label="Compilar a C (F6)", command=self.accion_compilar)
+        terminal_menu.add_command(label="Generar Ensamblador (F7)", command=self.accion_generar_asm)
+        terminal_menu.add_separator()
+        terminal_menu.add_command(label="Guardar Ensamblador (.asm)", command=self.guardar_asm)
         menubar.add_cascade(label="Terminal", menu=terminal_menu)
 
         # --- 1. BARRA DE HERRAMIENTAS (Puedes mantenerla o quitarla si prefieres solo menú) ---
@@ -123,6 +127,7 @@ class SimuladorGo:
         tk.Frame(toolbar, width=20, bg="#333333").pack(side=tk.LEFT)
 
         self.crear_boton(toolbar, "🔨 COMPILAR (F6)", self.accion_compilar, "#007acc")
+        self.crear_boton(toolbar, "📝 ASM (F7)", self.accion_generar_asm, "#9c27b0")
         self.crear_boton(toolbar, "▶️ EJECUTAR (F5)", self.accion_ejecutar, "#4CAF50")
 
         self.crear_boton(toolbar, "❌ Salir", self.cerrar, "#d32f2f", side=tk.RIGHT)
@@ -160,7 +165,8 @@ class SimuladorGo:
         self.root.bind('<Control-s>', self.guardar)      
         self.root.bind('<Control-S>', self.guardar)      
         self.root.bind('<F5>', self.accion_ejecutar)  
-        self.root.bind('<F6>', self.accion_compilar)   
+        self.root.bind('<F6>', self.accion_compilar)
+        self.root.bind('<F7>', self.accion_generar_asm)
         self.root.bind('<Control-f>', lambda e: self.abrir_buscador())
         self.root.bind('<Control-F>', lambda e: self.abrir_buscador())
         
@@ -188,6 +194,18 @@ class SimuladorGo:
         self.texto_tokens = scrolledtext.ScrolledText(self.tab_tokens, bg="#222", fg="#00ff00", font=("Consolas", 10))
         self.texto_tokens.pack(fill=tk.BOTH, expand=True)
         self.notebook.add(self.tab_tokens, text="  🔍 Análisis Léxico  ")
+
+        # Nueva pestaña para código ensamblador
+        self.tab_asm = tk.Frame(self.notebook, bg="#1e1e1e")
+        self.output_asm = scrolledtext.ScrolledText(self.tab_asm, bg="#1a1a2e", fg="#e94560", font=("Consolas", 11))
+        self.output_asm.pack(fill=tk.BOTH, expand=True)
+        self.notebook.add(self.tab_asm, text="  📝 Ensamblador (ASM)  ")
+
+        # Nueva pestaña para código intermedio TAC
+        self.tab_tac = tk.Frame(self.notebook, bg="#1e1e1e")
+        self.output_tac = scrolledtext.ScrolledText(self.tab_tac, bg="#0f0f23", fg="#00d4ff", font=("Consolas", 11))
+        self.output_tac.pack(fill=tk.BOTH, expand=True)
+        self.notebook.add(self.tab_tac, text="  🔧 Código Intermedio  ")
         
         self.texto_codigo.bind("<Return>", self.auto_indentacion)
 
@@ -338,6 +356,81 @@ class SimuladorGo:
                 self.output_c.delete("1.0", tk.END)
                 self.output_c.insert(tk.END, f"Error de Compilación: {e}\n")
 
+    def accion_generar_asm(self, event=None):
+        """Genera código ensamblador y código intermedio (TAC)"""
+        lista_tokens = self.procesar_tokens()
+        if lista_tokens:
+            mi_parser = Parser(lista_tokens)
+            try:
+                program = mi_parser.parse()
+                
+                if program:
+                    # Crear el generador de ensamblador
+                    asm_gen = AssemblyGenerator(program)
+                    tac_code, asm_code = asm_gen.generate()
+                    
+                    # Mostrar código intermedio (TAC)
+                    self.output_tac.delete("1.0", tk.END)
+                    self.output_tac.insert(tk.END, tac_code)
+                    
+                    # Mostrar código ensamblador
+                    self.output_asm.delete("1.0", tk.END)
+                    self.output_asm.insert(tk.END, asm_code)
+                    
+                    # Cambiar a la pestaña de ensamblador
+                    self.notebook.select(self.tab_asm)
+                    
+                    self.consola.insert(tk.END, ">> Código ensamblador generado correctamente.\n")
+                    self.consola.insert(tk.END, ">> Use 'Guardar Ensamblador' para exportar el archivo .asm\n")
+                    
+            except Exception as e:
+                self.output_asm.delete("1.0", tk.END)
+                self.output_asm.insert(tk.END, f"Error al generar ensamblador: {e}\n")
+                self.consola.insert(tk.END, f"Error: {e}\n")
+
+    def guardar_asm(self):
+        """Guarda el código ensamblador en un archivo .asm"""
+        asm_content = self.output_asm.get("1.0", tk.END).strip()
+        tac_content = self.output_tac.get("1.0", tk.END).strip()
+        
+        if not asm_content or asm_content.startswith("Error"):
+            messagebox.showwarning("Aviso", "Primero debe generar el código ensamblador (F7)")
+            return
+        
+        # Determinar nombre base del archivo
+        if self.ruta_actual:
+            base_name = os.path.splitext(os.path.basename(self.ruta_actual))[0]
+            default_dir = os.path.dirname(self.ruta_actual)
+        else:
+            base_name = "output"
+            default_dir = os.getcwd()
+        
+        # Diálogo para guardar
+        ruta_asm = filedialog.asksaveasfilename(
+            initialdir=default_dir,
+            initialfile=f"{base_name}.asm",
+            defaultextension=".asm",
+            filetypes=[("Assembly Files", "*.asm"), ("All Files", "*.*")]
+        )
+        
+        if ruta_asm:
+            try:
+                # Guardar archivo .asm
+                with open(ruta_asm, "w", encoding="utf-8") as f:
+                    f.write(asm_content)
+                
+                # También guardar el código intermedio (.tac)
+                ruta_tac = os.path.splitext(ruta_asm)[0] + ".tac"
+                with open(ruta_tac, "w", encoding="utf-8") as f:
+                    f.write(tac_content)
+                
+                self.consola.insert(tk.END, f">> Archivo guardado: {os.path.basename(ruta_asm)}\n")
+                self.consola.insert(tk.END, f">> Código intermedio: {os.path.basename(ruta_tac)}\n")
+                messagebox.showinfo("Éxito", f"Archivos guardados:\n- {ruta_asm}\n- {ruta_tac}")
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo guardar: {e}")
+
     def abrir_archivo(self):
         ruta = filedialog.askopenfilename(filetypes=[("Go Files", "*.go"), ("Text", "*.txt")])
         if ruta:
@@ -475,6 +568,8 @@ class SimuladorGo:
         self.texto_tokens.delete("1.0", tk.END)
         self.consola.delete("1.0", tk.END)
         self.output_c.delete("1.0", tk.END)
+        self.output_asm.delete("1.0", tk.END)
+        self.output_tac.delete("1.0", tk.END)
         self.consola.insert(tk.END, ">> Área de trabajo limpiada.\n")
 
     def cerrar(self):
