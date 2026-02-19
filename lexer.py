@@ -61,6 +61,7 @@ class TokenType(Enum):
     LSHIFTEQ = auto()
     RSHIFTEQ = auto()
     ANDNOTEQ = auto()
+    NOT = auto()
     AND = auto()
     OR = auto()
     ARROW = auto()
@@ -296,6 +297,8 @@ class Lexer:
                 if self.current_char() == '=':
                     self.add_token(TokenType.NEQ, '!=')
                     self.advance()
+                else:
+                    self.add_token(TokenType.NOT, '!')
             elif self.current_char() == '<':
                 self.advance()
                 if self.current_char() == '<':

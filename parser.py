@@ -855,7 +855,7 @@ class Parser:
         return expr
     
     def parse_unary(self) -> Expression:
-        if self.match(TokenType.PLUS, TokenType.MINUS, TokenType.AMPERSAND, TokenType.STAR, TokenType.CARET, TokenType.INC, TokenType.DEC):
+        if self.match(TokenType.PLUS, TokenType.MINUS, TokenType.AMPERSAND, TokenType.STAR, TokenType.CARET, TokenType.INC, TokenType.DEC, TokenType.NOT):
             op = self.current_token().value
             self.advance()
             expr = self.parse_unary()

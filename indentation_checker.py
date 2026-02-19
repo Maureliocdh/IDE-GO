@@ -71,6 +71,22 @@ class IndentationChecker:
                     last_line_opened_block = False
                 continue
             
+            # En Go, las etiquetas case/default dentro de switch se indentan al mismo
+            # nivel que el switch (un nivel menos que el cuerpo del switch).
+            # Las manejamos como un caso especial: se permiten en expected_indent - 1
+            # y no cambian expected_indent (su cuerpo ya está en expected_indent).
+            is_case_label = (stripped.startswith('case ') or stripped.startswith('default:') or stripped == 'default:') and stripped.endswith(':')
+            if is_case_label:
+                allowed = expected_indent - 1
+                if current_indent != allowed:
+                    self.errors.append((
+                        i,
+                        f"Indentación incorrecta de case/default: esperado {allowed} nivel(es), encontrado {current_indent}"
+                    ))
+                # El cuerpo del case va en expected_indent (sin cambio)
+                last_line_opened_block = True
+                continue
+
             # Si la línea anterior abrió un bloque {, este debe estar más indentado
             if last_line_opened_block:
                 if current_indent != expected_indent:
