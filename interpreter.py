@@ -210,7 +210,8 @@ class Interpreter:
         elif isinstance(expr, NewLiteral):
             return self.eval_new(expr)
         elif isinstance(expr, LambdaExpr):
-            return Value("function", expr)
+            # Store both the lambda and the environment for closures
+            return Value("function", {"lambda": expr, "env": self.current_env})
         else:
             raise RuntimeError(f"Unknown expression type: {type(expr)}")
     
@@ -564,6 +565,14 @@ class Interpreter:
                     args = [self.eval_expression(arg) for arg in call.args]
                     return self.call_function(func_decl, args)
                 except RuntimeError:
+                    # Check if it's a variable holding a function (closure)
+                    try:
+                        var_value = self.current_env.get(func_name)
+                        if var_value.type_name == "function":
+                            args = [self.eval_expression(arg) for arg in call.args]
+                            return self.call_lambda(var_value.value, args)
+                    except RuntimeError:
+                        pass
                     raise RuntimeError(f"Undefined function: {func_name}")
         
         raise RuntimeError("Invalid function call")
@@ -590,6 +599,37 @@ class Interpreter:
             return Value("nil", None)
         except ReturnException as ret:
             # If multiple return values, return them as a tuple Value
+            if len(ret.values) > 1:
+                return Value("tuple", ret.values)
+            else:
+                return ret.values[0] if ret.values else Value("nil", None)
+        finally:
+            self.current_env = prev_env
+    
+    def call_lambda(self, closure: dict, args: List[Value]) -> Value:
+        """Call a lambda/closure function"""
+        lambda_expr = closure["lambda"]
+        captured_env = closure["env"]
+        
+        # Create new environment with captured environment as parent (for closure)
+        func_env = Environment(captured_env)
+        
+        # Bind parameters
+        for i, param in enumerate(lambda_expr.params):
+            if i < len(args):
+                func_env.define(param.name, args[i])
+            else:
+                func_env.define(param.name, Value("nil", None))
+        
+        # Execute function body
+        prev_env = self.current_env
+        self.current_env = func_env
+        
+        try:
+            if lambda_expr.body:
+                self.execute_block(lambda_expr.body)
+            return Value("nil", None)
+        except ReturnException as ret:
             if len(ret.values) > 1:
                 return Value("tuple", ret.values)
             else:
