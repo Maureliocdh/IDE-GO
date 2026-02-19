@@ -99,7 +99,7 @@ class Interpreter:
         return value.type_name
     
     def to_string(self, value: Value) -> str:
-        """Convert value to string representation"""
+        """Convert value to string representation - format like Go's fmt"""
         if value.type_name == "string":
             return value.value
         elif value.type_name == "int":
@@ -108,9 +108,13 @@ class Interpreter:
             return str(value.value)
         elif value.type_name == "bool":
             return "true" if value.value else "false"
+        elif value.type_name == "nil":
+            return "<nil>"
         elif value.type_name == "array":
+            if value.value is None:
+                return "[]"
             elements = [self.to_string(v) for v in value.value]
-            return "[" + ", ".join(elements) + "]"
+            return "[" + " ".join(elements) + "]"
         elif value.type_name == "map":
             pairs = [f"{k}: {self.to_string(v)}" for k, v in value.value.items()]
             return "{" + ", ".join(pairs) + "}"
@@ -132,6 +136,52 @@ class Interpreter:
         else:
             return True
     
+    def get_zero_value(self, type_: Optional[Type]) -> Value:
+        """Get zero value for a given type"""
+        if type_ is None:
+            return Value("nil", None)
+        
+        if isinstance(type_, NamedType):
+            # Handle basic types
+            if type_.name == "int":
+                return Value("int", 0)
+            elif type_.name == "float64" or type_.name == "float32" or type_.name == "float":
+                return Value("float", 0.0)
+            elif type_.name == "string":
+                return Value("string", "")
+            elif type_.name == "bool":
+                return Value("bool", False)
+            else:
+                return Value("nil", None)
+        
+        elif isinstance(type_, ArrayType):
+            # For arrays, create array with zero values
+            if type_.size:
+                # Fixed-size array: [5]int
+                size_val = self.eval_expression(type_.size)
+                size = int(size_val.value)
+                # Create independent zero values for each element
+                elements = [self.get_zero_value(type_.type_) for _ in range(size)]
+                return Value("array", elements)
+            else:
+                # Slice: []int - uninitialized starts as nil
+                return Value("array", None)
+        
+        elif isinstance(type_, SliceType):
+            # Uninitialized slices are nil
+            return Value("array", None)
+        
+        elif isinstance(type_, MapType):
+            # Maps start empty
+            return Value("map", {})
+        
+        elif isinstance(type_, PointerType):
+            # Pointers start as nil
+            return Value("pointer", None)
+        
+        else:
+            return Value("nil", None)
+    
     def run(self):
         """Execute the program"""
         try:
@@ -151,6 +201,8 @@ class Interpreter:
                 pass
         
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             self.print_output(f"Error: {str(e)}")
     
     def execute_declaration(self, decl: Union[FuncDecl, VarDecl, ConstDecl, TypeDecl, StructDecl, InterfaceDecl]):
@@ -162,7 +214,8 @@ class Interpreter:
             if decl.value:
                 value = self.eval_expression(decl.value)
             else:
-                value = Value("nil", None)
+                # Initialize with zero value for the type
+                value = self.get_zero_value(decl.type_)
             self.global_env.define(decl.name, value)
         elif isinstance(decl, ConstDecl):
             value = self.eval_expression(decl.value)
@@ -236,6 +289,8 @@ class Interpreter:
             return Value("bool", True)
         elif type_str == "false":
             return Value("bool", False)
+        elif type_str == "nil":
+            return Value("nil", None)
         else:
             raise RuntimeError(f"Unknown literal type: {lit.type_}")
     
@@ -271,8 +326,30 @@ class Interpreter:
         elif op.op == "%":
             return Value("int", int(left.value) % int(right.value))
         elif op.op == "==":
+            # Handle nil comparison specially
+            if left.type_name == "nil" or right.type_name == "nil":
+                # In Go, only uninitialized slice is equal to nil
+                if left.type_name == "nil" and right.type_name == "nil":
+                    return Value("bool", True)
+                elif left.type_name == "array" and right.type_name == "nil":
+                    # Empty slice [] is not nil, check if it's really uninitialized
+                    return Value("bool", left.value is None)
+                elif left.type_name == "nil" and right.type_name == "array":
+                    return Value("bool", right.value is None)
+                else:
+                    return Value("bool", left.value is None and right.value is None)
             return Value("bool", left.value == right.value)
         elif op.op == "!=":
+            # Handle nil comparison specially
+            if left.type_name == "nil" or right.type_name == "nil":
+                if left.type_name == "nil" and right.type_name == "nil":
+                    return Value("bool", False)
+                elif left.type_name == "array" and right.type_name == "nil":
+                    return Value("bool", left.value is not None)
+                elif left.type_name == "nil" and right.type_name == "array":
+                    return Value("bool", right.value is not None)
+                else:
+                    return Value("bool", not (left.value is None and right.value is None))
             return Value("bool", left.value != right.value)
         elif op.op == "<":
             return Value("bool", left.value < right.value)
@@ -457,6 +534,8 @@ class Interpreter:
                 if arg.type_name == "string":
                     return Value("int", len(arg.value))
                 elif arg.type_name == "array":
+                    if arg.value is None:  # nil slice
+                        return Value("int", 0)
                     return Value("int", len(arg.value))
                 elif arg.type_name == "map":
                     return Value("int", len(arg.value))
@@ -464,17 +543,34 @@ class Interpreter:
                     raise RuntimeError(f"len() not supported for type {arg.type_name}")
             
             elif func_name == "make":
-                # make(type, size) or make(map[K]V)
+                # make([]Type, size), make([][]Type, size), make(map[K]V)
                 if len(call.args) < 1:
                     raise RuntimeError("make() requires at least 1 argument")
-                # For now, handle make([]Type, size) and make(map[K]V)
-                # This is simplified - just return empty array or map
+                
+                # Determine the element type from the first argument
+                type_arg = call.args[0]
+                size = 0
                 if len(call.args) >= 2:
-                    size_val = self.eval_expression(call.args[1])
-                    size = int(size_val.value)
+                    size = int(self.eval_expression(call.args[1]).value)
+                
+                # Check if the type argument is a slice: []Type or [][]Type
+                if isinstance(type_arg, ArrayLiteral) and type_arg.elements == []:
+                    # This shouldn't happen, but fallback
                     return Value("array", [Value("nil", None) for _ in range(size)])
-                else:
-                    return Value("map", {})
+                
+                # We need to determine element type from the AST
+                # The parser would have stored the type info in the Identifier or elsewhere
+                # Look for type info via the token position / identifier name
+                # For now, handle based on the parsed arg structure
+                
+                # Build zero values based on known patterns
+                if isinstance(type_arg, Identifier):
+                    type_name_str = type_arg.name
+                    if type_name_str == "map" or isinstance(type_arg, MapLiteral):
+                        return Value("map", {})
+                    return Value("array", [Value("nil", None) for _ in range(size)])
+                
+                return Value("array", [Value("nil", None) for _ in range(size)])
             
             elif func_name == "append":
                 if len(call.args) < 2:
@@ -514,6 +610,8 @@ class Interpreter:
                 if call.args:
                     val = self.eval_expression(call.args[0])
                     if val.type_name in ["string", "array", "map"]:
+                        if val.value is None:  # nil slice
+                            return Value("int", 0)
                         return Value("int", len(val.value))
                     else:
                         raise RuntimeError(f"Cannot get len of {val.type_name}")
@@ -522,6 +620,8 @@ class Interpreter:
                 if call.args:
                     val = self.eval_expression(call.args[0])
                     if val.type_name in ["array"]:
+                        if val.value is None:  # nil slice
+                            return Value("int", 0)
                         return Value("int", len(val.value))
                     else:
                         raise RuntimeError(f"Cannot get cap of {val.type_name}")
@@ -530,10 +630,29 @@ class Interpreter:
                 if len(call.args) >= 2:
                     arr = self.eval_expression(call.args[0])
                     if arr.type_name == "array":
-                        new_arr = arr.value.copy()
+                        # Handle nil slice
+                        if arr.value is None:
+                            new_arr = []
+                        else:
+                            new_arr = arr.value.copy()
                         for arg in call.args[1:]:
                             new_arr.append(self.eval_expression(arg))
                         return Value("array", new_arr)
+            
+            elif func_name == "copy":
+                if len(call.args) != 2:
+                    raise RuntimeError("copy() requires exactly 2 arguments")
+                dst = self.eval_expression(call.args[0])
+                src = self.eval_expression(call.args[1])
+                if dst.type_name != "array" or src.type_name != "array":
+                    raise RuntimeError("copy() requires slices as arguments")
+                if dst.value is None or src.value is None:
+                    return Value("int", 0)
+                # Copy elements from src to dst
+                count = min(len(dst.value), len(src.value))
+                for i in range(count):
+                    dst.value[i] = src.value[i]
+                return Value("int", count)
             
             elif func_name == "make":
                 return self.eval_make_builtin(call.args)
@@ -721,6 +840,10 @@ class Interpreter:
         """Evaluate slice expression"""
         expr = self.eval_expression(slice_expr.expr)
         
+        # Handle nil slices
+        if expr.value is None:
+            return Value("array", None)
+        
         start = 0
         end = len(expr.value)
         
@@ -741,7 +864,9 @@ class Interpreter:
             length = 0
             if make_lit.len_:
                 length = int(self.eval_expression(make_lit.len_).value)
-            return Value("array", [Value("nil", None) for _ in range(length)])
+            # Create slice with zero values of the element type
+            elements = [self.get_zero_value(make_lit.type_.type_) for _ in range(length)]
+            return Value("array", elements)
         
         elif isinstance(make_lit.type_, MapType):
             return Value("map", {})
@@ -791,7 +916,8 @@ class Interpreter:
             if stmt.value:
                 value = self.eval_expression(stmt.value)
             else:
-                value = Value("nil", None)
+                # Initialize with zero value for the type
+                value = self.get_zero_value(stmt.type_)
             self.current_env.define(stmt.name, value)
         
         elif isinstance(stmt, ConstDecl):

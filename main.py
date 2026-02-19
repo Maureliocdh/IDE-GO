@@ -1,6 +1,6 @@
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk, simpledialog
 import os
 import re
 import shutil
@@ -125,6 +125,10 @@ class EditorTab:
         self.ide.actualizar_barra_estado_tab(self, event)
         self.ide.validar_codigo_en_tiempo_real()  # Nueva validación en tiempo real
         self.ide.manejar_autocompletado(event)  # Autocompletado
+        
+        # Des-indentar automáticamente al escribir }
+        if event.keysym == 'braceright':  # El usuario escribió }
+            self.ide.auto_desindentar_cierre(self)
     
     def on_click(self, event):
         """Maneja clicks del mouse"""
@@ -416,7 +420,23 @@ class SimuladorGo:
         self.root.bind('<Control-D>', lambda e: self.duplicar_linea())
         self.root.bind('<Control-slash>', lambda e: self.comentar_descomentar())
         self.root.bind('<Control-question>', lambda e: self.comentar_descomentar())
-        
+        self.root.bind('<Control-Tab>', lambda e: self.siguiente_tab())
+        self.root.bind('<Control-Shift-Tab>', lambda e: self.anterior_tab())
+        self.root.bind('<Control-w>', lambda e: self.cerrar_tab_actual())
+        self.root.bind('<Control-W>', lambda e: self.cerrar_tab_actual())
+        self.root.bind('<Control-0>', lambda e: self.resetear_zoom())
+        self.root.bind('<Control-Key-0>', lambda e: self.resetear_zoom())
+        self.root.bind('<F8>', lambda e: self.toggle_terminal())
+        self.root.bind('<F12>', lambda e: self.ir_a_definicion())
+        self.root.bind('<F2>', lambda e: self.renombrar_simbolo())
+        self.root.bind('<Control-space>', lambda e: self.activar_autocompletado_manual())
+        self.root.bind('<Escape>', lambda e: self.ocultar_autocompletado())
+        self.root.bind('<Control-MouseWheel>', lambda e: self.zoom_editor_tab(self.get_tab_actual(), e))
+        self.root.bind('<Control-Shift-MouseWheel>', lambda e: self.zoom_editor_tab(self.get_tab_actual(), e, inverso=True))
+        #nueva pestañas control+n
+        self.root.bind('<Control-n>', lambda e: self.crear_nueva_tab())
+        self.root.bind('<Control-N>', lambda e: self.crear_nueva_tab())
+
         # Binding para autocompletado
         self.root.bind('<Control-space>', lambda e: self.activar_autocompletado_manual())
         self.root.bind('<Escape>', lambda e: self.ocultar_autocompletado())
@@ -2112,24 +2132,191 @@ Un IDE completo para programación en Go-like
             pass
     
     def auto_indentacion_tab(self, tab):
-        """Auto-indentación para una pestaña específica"""
-        cursor_pos = tab.texto_codigo.index(tk.INSERT)
-        linea_num = cursor_pos.split('.')[0]
-        contenido_linea = tab.texto_codigo.get(f"{linea_num}.0", f"{linea_num}.end")
-
-        indentacion = ""
-        for char in contenido_linea:
-            if char in (" ", "\t"):
-                indentacion += char
+        """Auto-indentación mejorada para Go"""
+        try:
+            cursor_pos = tab.texto_codigo.index(tk.INSERT)
+            linea_num = int(cursor_pos.split('.')[0])
+            contenido_linea = tab.texto_codigo.get(f"{linea_num}.0", f"{linea_num}.end")
+            
+            # Obtener indentación actual (solo tabs, estándar Go)
+            indentacion_actual = ""
+            for char in contenido_linea:
+                if char == "\t":
+                    indentacion_actual += "\t"
+                elif char == " ":
+                    # Convertir 4 espacios a 1 tab (compatibilidad)
+                    continue
+                else:
+                    break
+            
+            linea_stripped = contenido_linea.strip()
+            nueva_indentacion = indentacion_actual
+            
+            # CASO 1: Línea termina con { → incrementar indentación
+            if linea_stripped.endswith("{"):
+                nueva_indentacion = indentacion_actual + "\t"
+            
+            # CASO 2: Línea termina con { pero también tiene ) antes
+            # Ejemplo: func main() {
+            elif "{" in linea_stripped and linea_stripped.endswith("{"):
+                nueva_indentacion = indentacion_actual + "\t"
+            
+            # CASO 3: Estructuras de control sin { en la misma línea
+            # if, for, switch necesitan { en siguiente línea o ya tienen contenido
+            elif any(linea_stripped.startswith(kw) for kw in ['if ', 'for ', 'switch ', 'select ']):
+                if not linea_stripped.endswith("{"):
+                    # Si no termina en {, mantener misma indentación para poner el {
+                    nueva_indentacion = indentacion_actual
+                else:
+                    nueva_indentacion = indentacion_actual + "\t"
+            
+            # CASO 4: case o default → mantener indentación del switch
+            elif linea_stripped.startswith("case ") or linea_stripped.startswith("default"):
+                if linea_stripped.endswith(":"):
+                    # Después de case: o default:, incrementar para el contenido
+                    nueva_indentacion = indentacion_actual + "\t"
+                else:
+                    nueva_indentacion = indentacion_actual
+            
+            # CASO 5: Línea solo tiene } → des-indentar el cursor
+            elif linea_stripped == "}":
+                # El } ya está escrito, la nueva línea vuelve al nivel del }
+                if len(indentacion_actual) > 0:
+                    nueva_indentacion = indentacion_actual[:-1] if indentacion_actual.endswith("\t") else indentacion_actual
+                else:
+                    nueva_indentacion = ""
+            
+            # CASO 6: } seguido de más código (} else {, } else if {)
+            elif "}" in linea_stripped and not linea_stripped.startswith("}"):
+                if linea_stripped.endswith("{"):
+                    nueva_indentacion = indentacion_actual + "\t"
+                else:
+                    nueva_indentacion = indentacion_actual
+            
+            # CASO 7: func nombre() sin { → mantener para próxima línea
+            elif linea_stripped.startswith("func ") and not linea_stripped.endswith("{"):
+                nueva_indentacion = indentacion_actual
+            
+            # CASO 8: type, var, const, import 
+            elif any(linea_stripped.startswith(kw) for kw in ['type ', 'var ', 'const ', 'import ']):
+                nueva_indentacion = indentacion_actual
+            
+            # CASO 9: Línea termina en coma o operador → probable continuación
+            elif linea_stripped.endswith((",", "&&", "||", "+", "-", "*", "/")):
+                # Mantener indentación, es continuación
+                nueva_indentacion = indentacion_actual
+            
+            # CASO 10: Apertura de slice/array/struct literal
+            elif linea_stripped.endswith("[]int{") or linea_stripped.endswith("]{") or "= []" in linea_stripped:
+                if linea_stripped.endswith("{"):
+                    nueva_indentacion = indentacion_actual + "\t"
+                else:
+                    nueva_indentacion = indentacion_actual
+            
+            # CASO DEFAULT: mantener misma indentación
             else:
-                break
-
-        if contenido_linea.strip().endswith("{"):
-            tab.texto_codigo.insert(tk.INSERT, "\n" + indentacion + "\t")
+                nueva_indentacion = indentacion_actual
+            
+            # Insertar nueva línea con indentación
+            tab.texto_codigo.insert(tk.INSERT, "\n" + nueva_indentacion)
+            
+            # Marcar como modificado
+            tab.archivo_modificado = True
+            self.actualizar_titulo_tab()
+            
             return "break"
-        else:
-            tab.texto_codigo.insert(tk.INSERT, "\n" + indentacion)
+            
+        except Exception as e:
+            print(f"Error en auto_indentacion_tab: {e}")
+            # Fallback: insertar nueva línea sin indentación especial
+            tab.texto_codigo.insert(tk.INSERT, "\n")
             return "break"
+    
+    def auto_desindentar_cierre(self, tab):
+        """
+        Des-indenta automáticamente cuando se escribe }
+        Mueve el } a la indentación correcta según el bloque que cierra
+        """
+        try:
+            cursor_pos = tab.texto_codigo.index(tk.INSERT)
+            linea_num, col_num = map(int, cursor_pos.split('.'))
+            
+            # Obtener contenido de la línea actual
+            contenido_linea = tab.texto_codigo.get(f"{linea_num}.0", f"{linea_num}.end")
+            
+            # Verificar que la línea solo contenga espacios/tabs y el }
+            linea_stripped = contenido_linea.strip()
+            if linea_stripped != '}':
+                return  # No hacer nada si hay más contenido
+            
+            # Contar la indentación actual
+            indentacion_actual = 0
+            for char in contenido_linea:
+                if char == '\t':
+                    indentacion_actual += 1
+                elif char == ' ':
+                    continue  # Ignorar espacios (Go usa tabs)
+                else:
+                    break
+            
+            # Si no hay indentación, no hacer nada
+            if indentacion_actual == 0:
+                return
+            
+            # Buscar el bloque que abre este cierre mirando hacia atrás
+            nivel_bloques = 1  # Ya tenemos un } que queremos cerrar
+            linea_busqueda = linea_num - 1
+            indent_objetivo = 0
+            
+            while linea_busqueda > 0 and nivel_bloques > 0:
+                linea_contenido = tab.texto_codigo.get(f"{linea_busqueda}.0", f"{linea_busqueda}.end")
+                linea_strip = linea_contenido.strip()
+                
+                # Ignorar líneas vacías y comentarios
+                if not linea_strip or linea_strip.startswith('//'):
+                    linea_busqueda -= 1
+                    continue
+                
+                # Contar cierres } en esta línea
+                nivel_bloques += linea_strip.count('}')
+                
+                # Contar aperturas { en esta línea
+                if '{' in linea_strip:
+                    nivel_bloques -= linea_strip.count('{')
+                    
+                    # Si encontramos el bloque que abre
+                    if nivel_bloques == 0:
+                        # Calcular indentación de la línea que abre
+                        indent_objetivo = 0
+                        for char in linea_contenido:
+                            if char == '\t':
+                                indent_objetivo += 1
+                            elif char == ' ':
+                                continue
+                            else:
+                                break
+                        break
+                
+                linea_busqueda -= 1
+            
+            # Si la indentación actual es diferente a la objetivo, corregir
+            if indentacion_actual != indent_objetivo:
+                # Eliminar la línea actual
+                tab.texto_codigo.delete(f"{linea_num}.0", f"{linea_num}.end")
+                
+                # Insertar con la indentación correcta
+                nueva_linea = ('\t' * indent_objetivo) + '}'
+                tab.texto_codigo.insert(f"{linea_num}.0", nueva_linea)
+                
+                # Posicionar cursor después del }
+                tab.texto_codigo.mark_set(tk.INSERT, f"{linea_num}.{indent_objetivo + 1}")
+                
+                # Marcar como modificado
+                tab.archivo_modificado = True
+                self.actualizar_titulo_tab()
+                
+        except Exception as e:
+            print(f"Error en auto_desindentar_cierre: {e}")
     
     def zoom_editor_tab(self, tab, event):
         """Zoom para una pestaña específica"""

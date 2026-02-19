@@ -63,7 +63,12 @@ class IndentationChecker:
                         f"Indentación incorrecta: esperado {expected_indent - 1} nivel(es), encontrado {current_indent}"
                     ))
                 expected_indent -= 1
-                last_line_opened_block = False
+                # Handle "} else {" and "} else if ... {" — the closing } and opening { on same line
+                if stripped.endswith('{'):
+                    expected_indent += 1
+                    last_line_opened_block = True
+                else:
+                    last_line_opened_block = False
                 continue
             
             # Si la línea anterior abrió un bloque {, este debe estar más indentado

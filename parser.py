@@ -867,13 +867,36 @@ class Parser:
         
         while True:
             if self.consume(TokenType.LPAREN):
-                args = []
-                while not self.match(TokenType.RPAREN):
-                    args.append(self.parse_expression())
-                    if not self.consume(TokenType.COMMA):
-                        break
-                self.expect(TokenType.RPAREN)
-                expr = CallExpr(expr, args)
+                # Special handling for make() - parse type argument properly
+                if isinstance(expr, Identifier) and expr.name == "make":
+                    args = []
+                    if not self.match(TokenType.RPAREN):
+                        # First arg could be a type: []string, [][]int, map[K]V
+                        if self.match(TokenType.LBRACKET, TokenType.MAP):
+                            # It's a type - parse as type
+                            type_info = self.parse_type()
+                            args.append(type_info)  # Store as TypeNode placeholder
+                        else:
+                            args.append(self.parse_expression())
+                        # Parse remaining args
+                        while self.consume(TokenType.COMMA):
+                            args.append(self.parse_expression())
+                    self.expect(TokenType.RPAREN)
+                    # Convert to MakeLiteral if first arg is a Type
+                    if args and isinstance(args[0], Type):
+                        len_expr = args[1] if len(args) > 1 else None
+                        cap_expr = args[2] if len(args) > 2 else None
+                        expr = MakeLiteral(args[0], len_expr, cap_expr)
+                    else:
+                        expr = CallExpr(expr, args)
+                else:
+                    args = []
+                    while not self.match(TokenType.RPAREN):
+                        args.append(self.parse_expression())
+                        if not self.consume(TokenType.COMMA):
+                            break
+                    self.expect(TokenType.RPAREN)
+                    expr = CallExpr(expr, args)
             elif self.consume(TokenType.LBRACKET):
                 if self.match(TokenType.COLON):
                     start = None
@@ -924,6 +947,9 @@ class Parser:
             value = self.current_token().value
             self.advance()
             return Literal(value, TokenType.TRUE if value == 'true' else TokenType.FALSE)
+        elif self.match(TokenType.NIL):
+            self.advance()
+            return Literal("nil", TokenType.NIL)
         elif self.match(TokenType.INT, TokenType.FLOAT):
             token = self.current_token()
             self.advance()
@@ -963,19 +989,34 @@ class Parser:
             self.expect(TokenType.RPAREN)
             return expr
         elif self.consume(TokenType.LBRACKET):
-            # Could be: [elements...] or [size]type{elements}
+            # Could be: [elements...] or [size]type{elements} or [...]type{elements}
+            
+            # Check for [...] (inferred size array)
+            if self.match(TokenType.ELLIPSIS):
+                self.advance()  # consume ...
+                self.expect(TokenType.RBRACKET)  # expect ]
+                
+                # Now expect type and braces: [...]int{1, 2, 3}
+                if self.match(TokenType.IDENTIFIER, TokenType.LBRACKET, TokenType.STAR,
+                             TokenType.MAP, TokenType.CHAN, TokenType.FUNC, TokenType.INTERFACE):
+                    elem_type = self.parse_type()
+                    if self.consume(TokenType.LBRACE):
+                        elements = self.parse_array_elements_with_indices()
+                        self.expect(TokenType.RBRACE)
+                        # Return ArrayLiteral with inferred size
+                        return ArrayLiteral(elements)
+                
+                raise SyntaxError(f"Expected type and initializer after [...]")
+            
             if self.match(TokenType.RBRACKET):
                 # Empty slice: []type{...}
                 self.advance()
-                if self.match(TokenType.IDENTIFIER):
+                if self.match(TokenType.IDENTIFIER, TokenType.LBRACKET, TokenType.STAR,
+                             TokenType.MAP, TokenType.CHAN, TokenType.FUNC, TokenType.INTERFACE):
                     # It's a typed slice literal: []int{1, 2, 3}
-                    self.advance()  # consume type name
+                    elem_type = self.parse_type()
                     if self.consume(TokenType.LBRACE):
-                        elements = []
-                        while not self.match(TokenType.RBRACE):
-                            elements.append(self.parse_expression())
-                            if not self.consume(TokenType.COMMA):
-                                break
+                        elements = self.parse_array_elements_with_indices()
                         self.expect(TokenType.RBRACE)
                         return ArrayLiteral(elements)
                 # Just empty brackets, return empty array
@@ -986,16 +1027,14 @@ class Parser:
                 
                 if self.consume(TokenType.RBRACKET):
                     # Check if followed by type and braces: [size]type{...}
-                    if self.match(TokenType.IDENTIFIER):
-                        type_name = self.current_token().value
-                        self.advance()
+                    # The type could be a simple identifier or complex type like [3]int
+                    if self.match(TokenType.IDENTIFIER, TokenType.LBRACKET, TokenType.STAR, 
+                                 TokenType.MAP, TokenType.CHAN, TokenType.FUNC, TokenType.INTERFACE):
+                        # Parse the element type
+                        elem_type = self.parse_type()
                         if self.consume(TokenType.LBRACE):
-                            # It's a typed array literal
-                            elements = []
-                            while not self.match(TokenType.RBRACE):
-                                elements.append(self.parse_expression())
-                                if not self.consume(TokenType.COMMA):
-                                    break
+                            # It's a typed array literal - can have indexed elements
+                            elements = self.parse_array_elements_with_indices()
                             self.expect(TokenType.RBRACE)
                             return ArrayLiteral(elements)
                     # Just a single-element array [expr]
@@ -1008,16 +1047,50 @@ class Parser:
                 self.expect(TokenType.RBRACKET)
                 return ArrayLiteral(elements)
         elif self.consume(TokenType.LBRACE):
-            pairs = []
-            while not self.match(TokenType.RBRACE):
-                key = self.parse_expression()
-                self.expect(TokenType.COLON)
-                value = self.parse_expression()
-                pairs.append((key, value))
-                if not self.consume(TokenType.COMMA):
-                    break
-            self.expect(TokenType.RBRACE)
-            return MapLiteral(pairs)
+            # Could be array literal {1, 2, 3} or map literal {key: value}
+            # Need to look ahead to distinguish
+            self.skip_statement_terminators()  # Skip leading newlines
+            
+            if self.match(TokenType.RBRACE):
+                # Empty literal {}
+                self.advance()
+                return ArrayLiteral([])
+            
+            # Parse first element
+            first_expr = self.parse_expression()
+            
+            # Check what follows
+            if self.match(TokenType.COLON):
+                # It's a map literal: {key: value, ...}
+                self.advance()  # consume :
+                first_value = self.parse_expression()
+                pairs = [(first_expr, first_value)]
+                
+                while self.consume(TokenType.COMMA):
+                    self.skip_statement_terminators()  # Skip newlines
+                    if self.match(TokenType.RBRACE):
+                        break
+                    key = self.parse_expression()
+                    self.expect(TokenType.COLON)
+                    value = self.parse_expression()
+                    pairs.append((key, value))
+                
+                self.skip_statement_terminators()  # Skip trailing newlines
+                self.expect(TokenType.RBRACE)
+                return MapLiteral(pairs)
+            else:
+                # It's an array literal: {expr, expr, ...}
+                elements = [first_expr]
+                
+                while self.consume(TokenType.COMMA):
+                    self.skip_statement_terminators()  # Skip newlines
+                    if self.match(TokenType.RBRACE):
+                        break
+                    elements.append(self.parse_expression())
+                
+                self.skip_statement_terminators()  # Skip trailing newlines
+                self.expect(TokenType.RBRACE)
+                return ArrayLiteral(elements)
         elif self.consume(TokenType.MAP):
             # Typed map literal: map[KeyType]ValueType{pairs...}
             # Or map type expression: map[KeyType]ValueType
@@ -1048,6 +1121,53 @@ class Parser:
                 return MakeLiteral(MapType(key_type, value_type), [])
         else:
             raise SyntaxError(f"Unexpected token: {self.current_token()}")
+    
+    def parse_array_elements_with_indices(self) -> List[Expression]:
+        """
+        Parse array elements with optional index specifications.
+        Supports: {100, 3: 400, 500} → [100, 0, 0, 400, 500]
+        """
+        elements = []
+        current_index = 0
+        
+        self.skip_statement_terminators()  # Skip leading newlines
+        
+        while not self.match(TokenType.RBRACE):
+            # Parse the first expression (could be value or index)
+            expr = self.parse_expression()
+            
+            # Check if this is an indexed element: index: value
+            if self.match(TokenType.COLON):
+                self.advance()  # consume :
+                
+                # expr is the index, parse the value
+                target_index = None
+                if isinstance(expr, Literal) and expr.type_ == TokenType.INT:
+                    target_index = int(expr.value)
+                else:
+                    raise SyntaxError(f"Array index must be integer literal, got {type(expr).__name__}")
+                
+                # Fill gaps with zero values if needed
+                while current_index < target_index:
+                    elements.append(Literal(value="0", type_=TokenType.INT))
+                    current_index += 1
+                
+                # Parse the actual value
+                value = self.parse_expression()
+                elements.append(value)
+                current_index += 1
+            else:
+                # Just a regular element
+                elements.append(expr)
+                current_index += 1
+            
+            # Check for comma
+            if not self.consume(TokenType.COMMA):
+                break
+            
+            self.skip_statement_terminators()  # Skip newlines after comma
+        
+        return elements
 
 
 def parse_source(source: str) -> Program:

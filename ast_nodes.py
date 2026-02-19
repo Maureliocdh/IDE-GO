@@ -1,29 +1,35 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Union, Any
 
-# filepath: c:\Users\maure\Desktop\gi\ast_nodes.py
 
-# ============================================================================
-# BASE AST NODE
-# ============================================================================
-
-@dataclass
+# Base classes
 class ASTNode:
     """Base class for all AST nodes"""
     pass
 
 
-# ============================================================================
-# PROGRAM STRUCTURE
-# ============================================================================
+class Type(ASTNode):
+    """Base class for all type nodes"""
+    pass
 
+
+class Statement(ASTNode):
+    """Base class for all statement nodes"""
+    pass
+
+
+class Expression(ASTNode):
+    """Base class for all expression nodes"""
+    pass
+
+
+# Top-level declarations
 @dataclass
 class Program(ASTNode):
     """Root node representing the entire Go program"""
     package: Optional['PackageDecl']
     imports: List['ImportDecl']
-    declarations: List[Union['FuncDecl', 'VarDecl', 'ConstDecl', 'TypeDecl', 
-                             'StructDecl', 'InterfaceDecl']]
+    declarations: List[Union['FuncDecl', 'VarDecl', 'ConstDecl', 'TypeDecl', 'StructDecl', 'InterfaceDecl']]
 
 
 @dataclass
@@ -39,48 +45,44 @@ class ImportDecl(ASTNode):
     alias: Optional[str] = None
 
 
-# ============================================================================
-# DECLARATIONS
-# ============================================================================
-
 @dataclass
-class VarDecl(ASTNode):
+class VarDecl(Statement):
     """Variable declaration: var x int = 5"""
     name: str
-    type_: Optional['Type']
-    value: Optional['Expression']
+    type_: Optional[Type]
+    value: Optional[Expression]
 
 
 @dataclass
-class ConstDecl(ASTNode):
+class ConstDecl(Statement):
     """Constant declaration: const PI = 3.14"""
     name: str
-    type_: Optional['Type']
-    value: 'Expression'
+    type_: Optional[Type]
+    value: Expression
 
 
 @dataclass
 class TypeDecl(ASTNode):
     """Type declaration: type MyInt int"""
     name: str
-    type_: 'Type'
-
-
-@dataclass
-class FuncDecl(ASTNode):
-    """Function declaration: func add(a, b int) int { ... }"""
-    name: str
-    params: List['Parameter']
-    returns: List['Type']
-    body: Optional['Block']
-    receiver: Optional['Parameter'] = None  # For methods: func (r Receiver) Method()
+    type_: Type
 
 
 @dataclass
 class Parameter(ASTNode):
     """Function parameter: name Type"""
     name: str
-    type_: 'Type'
+    type_: Type
+
+
+@dataclass
+class FuncDecl(ASTNode):
+    """Function declaration: func add(a, b int) int { ... }"""
+    name: str
+    params: List[Parameter]
+    returns: List[Type]
+    body: Optional['Block']
+    receiver: Optional[Parameter] = None
 
 
 @dataclass
@@ -94,7 +96,7 @@ class StructDecl(ASTNode):
 class StructField(ASTNode):
     """Struct field: Name Type `tag`"""
     name: str
-    type_: 'Type'
+    type_: Type
     tag: Optional[str] = None
 
 
@@ -109,19 +111,10 @@ class InterfaceDecl(ASTNode):
 class InterfaceMethod(ASTNode):
     """Interface method signature"""
     name: str
-    signature: FuncDecl
+    signature: 'FuncDecl'
 
 
-# ============================================================================
-# TYPES
-# ============================================================================
-
-@dataclass
-class Type(ASTNode):
-    """Base class for all types"""
-    pass
-
-
+# Type nodes
 @dataclass
 class PrimitiveType(Type):
     """Primitive types: int, string, bool, float64, etc."""
@@ -137,7 +130,7 @@ class PointerType(Type):
 @dataclass
 class ArrayType(Type):
     """Array type: [size]T"""
-    size: Optional['Expression']  # None for slices
+    size: Optional[Expression]
     type_: Type
 
 
@@ -165,7 +158,7 @@ class FuncType(Type):
 class ChannelType(Type):
     """Channel type: chan T, <-chan T, chan<- T"""
     type_: Type
-    direction: str  # "send", "recv", "both"
+    direction: str
 
 
 @dataclass
@@ -177,51 +170,43 @@ class NamedType(Type):
 @dataclass
 class InterfaceType(Type):
     """Interface type: interface{}"""
-    methods: List['InterfaceMethod'] = None
+    methods: Optional[List[InterfaceMethod]] = None
 
 
-# ============================================================================
-# STATEMENTS
-# ============================================================================
-
+# Block
 @dataclass
 class Block(ASTNode):
     """Block of statements: { ... }"""
-    statements: List['Statement']
+    statements: List[Statement]
 
 
-@dataclass
-class Statement(ASTNode):
-    """Base class for all statements"""
-    pass
-
-
+# Statement nodes
 @dataclass
 class ExpressionStmt(Statement):
     """Expression used as statement: x++; add(1, 2)"""
-    expr: 'Expression'
+    expr: Expression
 
 
 @dataclass
 class ReturnStmt(Statement):
     """Return statement: return x, err"""
-    values: List['Expression']
+    values: List[Expression]
 
 
 @dataclass
 class IfStmt(Statement):
     """If statement: if x > 0 { ... } else { ... }"""
-    init: Optional[Statement]  # Optional init: if x := getValue(); x > 0
-    condition: 'Expression'
+    init: Optional[Statement]
+    condition: Expression
     then_block: Block
-    else_block: Optional[Union[Block, 'IfStmt']]  # Can be else if
+    else_block: Optional[Union[Block, 'IfStmt']]
 
 
 @dataclass
 class ForStmt(Statement):
     """For loop: for init; condition; post { ... }"""
     init: Optional[Statement]
-    condition: Optional['Expression']
+    condition: Optional[Expression]
     post: Optional[Statement]
     body: Block
 
@@ -231,7 +216,7 @@ class ForRangeStmt(Statement):
     """For range loop: for key, value := range iterable { ... }"""
     key: Optional[str]
     value: Optional[str]
-    iterable: 'Expression'
+    iterable: Expression
     body: Block
 
 
@@ -239,14 +224,14 @@ class ForRangeStmt(Statement):
 class SwitchStmt(Statement):
     """Switch statement: switch expr { case ... }"""
     init: Optional[Statement]
-    expr: Optional['Expression']
+    expr: Optional[Expression]
     cases: List['CaseClause']
 
 
 @dataclass
-class CaseClause(ASTNode):
+class CaseClause(Statement):
     """Case clause in switch: case value: statements"""
-    values: List['Expression']  # Empty list for default case
+    values: List[Expression]
     statements: List[Statement]
 
 
@@ -257,9 +242,9 @@ class SelectStmt(Statement):
 
 
 @dataclass
-class SelectCase(ASTNode):
+class SelectCase(Statement):
     """Case in select statement"""
-    expr: Optional['Expression']  # Send or receive expression
+    expr: Optional[Expression]
     statements: List[Statement]
     is_default: bool = False
 
@@ -267,13 +252,13 @@ class SelectCase(ASTNode):
 @dataclass
 class DeferStmt(Statement):
     """Defer statement: defer funcCall()"""
-    call: 'Expression'
+    call: Expression
 
 
 @dataclass
 class GoStmt(Statement):
     """Go statement (goroutine): go funcCall()"""
-    call: 'Expression'
+    call: Expression
 
 
 @dataclass
@@ -290,40 +275,31 @@ class ContinueStmt(Statement):
 
 @dataclass
 class FallthroughStmt(Statement):
-    """Fallthrough statement in switch case"""
+    """Fallthrough statement"""
     pass
 
 
 @dataclass
 class AssignStmt(Statement):
     """Assignment statement: x = 5 or x, y := 1, 2"""
-    targets: List['Expression']  # Left-hand side
-    values: List['Expression']   # Right-hand side
-    operator: str = "="  # "=", ":=", "+=", "-=", etc.
+    targets: List[Expression]
+    values: List[Expression]
+    operator: str = '='
 
 
 @dataclass
 class IncDecStmt(Statement):
     """Increment/Decrement: x++ or x--"""
-    expr: 'Expression'
-    operator: str  # "++" or "--"
+    expr: Expression
+    operator: str
 
 
-# ============================================================================
-# EXPRESSIONS
-# ============================================================================
-
-@dataclass
-class Expression(ASTNode):
-    """Base class for all expressions"""
-    pass
-
-
+# Expression nodes
 @dataclass
 class Literal(Expression):
     """Literal value: 42, 3.14, "hello", true"""
     value: str
-    type_: str  # "int", "float", "string", "rune", "bool"
+    type_: str
 
 
 @dataclass
@@ -336,21 +312,21 @@ class Identifier(Expression):
 class BinaryOp(Expression):
     """Binary operation: a + b, a && b, etc."""
     left: Expression
-    op: str  # "+", "-", "*", "/", "==", "!=", "&&", "||", etc.
+    op: str
     right: Expression
 
 
 @dataclass
 class UnaryOp(Expression):
     """Unary operation: -x, !b, *ptr, &var, ++x, --x"""
-    op: str  # "+", "-", "!", "^", "*", "&", "++", "--"
+    op: str
     operand: Expression
 
 
 @dataclass
 class CallExpr(Expression):
     """Function call: func(arg1, arg2)"""
-    func: Expression  # Can be Identifier or other expression
+    func: Expression
     args: List[Expression]
 
 
@@ -387,7 +363,7 @@ class ArrayLiteral(Expression):
 @dataclass
 class MapLiteral(Expression):
     """Map literal: map[string]int{"a": 1, "b": 2}"""
-    pairs: List[tuple]  # List of (key, value) tuples
+    pairs: List[tuple]
     type_: Optional[Type] = None
 
 
@@ -395,7 +371,7 @@ class MapLiteral(Expression):
 class StructLiteral(Expression):
     """Struct literal: MyStruct{field1: value1, field2: value2}"""
     type_: str
-    fields: List[tuple]  # List of (field_name, value) tuples
+    fields: List[tuple]
 
 
 @dataclass
@@ -431,7 +407,7 @@ class NewLiteral(Expression):
 class CompositeLiteral(Expression):
     """Composite literals: T{...}"""
     type_: Type
-    elems: List[tuple]  # List of (key, value) or value
+    elems: List[tuple]
 
 
 @dataclass
@@ -468,16 +444,13 @@ class ChannelRecvExpr(Expression):
     chan: Expression
 
 
-# ============================================================================
-# HELPER CLASSES AND ENUMS
-# ============================================================================
-
+# Scope / utility classes
 @dataclass
-class Scope(ASTNode):
+class Scope:
     """Represents a scope for variable/function binding"""
     parent: Optional['Scope'] = None
-    variables: dict = None  # name -> Type
-    functions: dict = None   # name -> FuncDecl
+    variables: dict = None
+    functions: dict = None
 
     def __post_init__(self):
         if self.variables is None:
@@ -487,16 +460,15 @@ class Scope(ASTNode):
 
 
 @dataclass
-class Position(ASTNode):
+class Position:
     """Source code position for error reporting"""
     line: int
     column: int
     file: str
 
 
-# Optional: Enhanced nodes with position info
 @dataclass
-class PositionedNode(ASTNode):
+class PositionedNode:
     """ASTNode with position information"""
     node: ASTNode
     pos: Position

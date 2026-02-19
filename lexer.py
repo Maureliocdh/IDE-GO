@@ -11,6 +11,7 @@ class TokenType(Enum):
     RUNE = auto()
     TRUE = auto()
     FALSE = auto()
+    NIL = auto()
     SLICE = auto()
     # Keywords
     PACKAGE = auto()
@@ -127,6 +128,7 @@ class Lexer:
         'fallthrough': TokenType.FALLTHROUGH,
         'true': TokenType.TRUE,
         'false': TokenType.FALSE,
+        'nil': TokenType.NIL,
         'slice': TokenType.SLICE,
     }
     
