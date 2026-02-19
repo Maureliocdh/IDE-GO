@@ -1008,13 +1008,21 @@ class Interpreter:
                             self.current_env.define(target.name, v)
             else:
                 # Regular parallel assignment
+                # Evaluate ALL right-hand side values BEFORE assigning
+                values = []
+                for i in range(len(assign.targets)):
+                    if i < len(assign.values):
+                        values.append(self.eval_expression(assign.values[i]))
+                    else:
+                        values.append(Value("nil", None))
+                
+                # Now assign the evaluated values
                 for i, target in enumerate(assign.targets):
                     if isinstance(target, Identifier):
                         # Skip blank identifier
                         if target.name == "_":
                             continue
-                        value = self.eval_expression(assign.values[i]) if i < len(assign.values) else Value("nil", None)
-                        self.current_env.define(target.name, value)
+                        self.current_env.define(target.name, values[i])
         else:
             # Regular assignment
             # Special handling for multi-value assignment from single expression
@@ -1050,12 +1058,21 @@ class Interpreter:
                                 expr.value[self.to_string(index)] = v
             else:
                 # Regular parallel assignment
+                # CRITICAL: Evaluate ALL right-hand side values BEFORE assigning
+                # This is necessary for swap operations like arr[j], arr[j+1] = arr[j+1], arr[j]
+                values = []
+                for i in range(len(assign.targets)):
+                    if i < len(assign.values):
+                        values.append(self.eval_expression(assign.values[i]))
+                    else:
+                        values.append(Value("nil", None))
+                
+                # Now assign the evaluated values
                 for i, target in enumerate(assign.targets):
+                    value = values[i]
                     if isinstance(target, Identifier):
-                        value = self.eval_expression(assign.values[i]) if i < len(assign.values) else Value("nil", None)
                         self.current_env.set(target.name, value)
                     elif isinstance(target, IndexExpr):
-                        value = self.eval_expression(assign.values[i]) if i < len(assign.values) else Value("nil", None)
                         # Handle index assignment
                         expr = self.eval_expression(target.expr)
                         index = self.eval_expression(target.index)

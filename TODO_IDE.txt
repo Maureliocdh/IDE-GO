@@ -1,0 +1,388 @@
+═══════════════════════════════════════════════════════════════════════════════════════
+                    TO-DO: MEJORAS PARA EL IDE Go-APK-IDE-FULL VERSION
+═══════════════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════════════
+� PROGRESO GENERAL - ROADMAP DE IMPLEMENTACIÓN
+═══════════════════════════════════════════════════════════════════════════════════════
+
+✅ SEMANA 1 - QUICK WINS (7/9 funcionalidades) - COMPLETADO
+   [✓] Barra de estado completa (línea/col/total/encoding/tipo/zoom)
+   [✓] Indicador de cambios sin guardar (*)
+   [✓] Confirmación al cerrar con cambios
+   [✓] Ir a línea (Ctrl+G) con resaltado temporal
+   [✓] Duplicar línea (Ctrl+D)
+   [✓] Comentar/Descomentar (Ctrl+/)
+   [✓] Zoom con Ctrl+Rueda del ratón (8-30pt)
+   [ ] Exportar código C pendiente
+   Documentación: NUEVAS_FUNCIONALIDADES.txt
+
+✅ SEMANA 2 - SISTEMA DE TABS MÚLTIPLES - COMPLETADO
+   [✓] EditorTab class con estado independiente por tab
+   [✓] Abrir múltiples archivos simultáneamente
+   [✓] Cerrar tabs (Ctrl+W) con confirmación
+   [✓] Navegación entre tabs (Ctrl+Tab / Ctrl+Shift+Tab)
+   [✓] Indicador visual de cambios por tab (•)
+   [✓] Todas las funcionalidades adaptadas para tabs
+   [✓] Verificación de cambios en todas las tabs al salir
+   Documentación: SISTEMA_TABS.txt
+
+✅ SEMANA 3 - DETECCIÓN DE ERRORES EN TIEMPO REAL - COMPLETADO
+   [✓] Validación automática con delay de 750ms
+   [✓] Panel inferior con lista de errores completa
+   [✓] Subrayado y fondo rojo en líneas con errores
+   [✓] Click en error para navegar a la línea
+   [✓] Detecta errores de indentación, léxicos y sintaxis
+   [✓] Contador de errores en tiempo real
+   [✓] Integración completa con sistema de tabs
+   [✓] Colores codificados por tipo de error
+   Documentación: DETECCION_ERRORES.txt
+
+✅ SEMANA 4 - EXPLORADOR DE ARCHIVOS (SIDEBAR) - COMPLETADO
+   [✓] Panel lateral izquierdo redimensionable
+   [✓] Árbol de archivos con Treeview (expandible/colapsable)
+   [✓] Iconos por tipo de archivo (🟦 .go, 🐍 .py, etc.)
+   [✓] Abrir carpeta de proyecto (Menú + botón 📂)
+   [✓] Doble click para abrir archivos en tabs
+   [✓] Menú contextual: Crear, Renombrar, Eliminar
+   [✓] Detección de archivos ya abiertos (no duplica tabs)
+   [✓] Integración completa con sistema de tabs
+   [✓] Filtrado automático de carpetas ocultas
+   Documentación: EXPLORADOR_ARCHIVOS.txt
+
+✅ SEMANA 5 - AUTOCOMPLETADO (IntelliSense) - COMPLETADO
+   [✓] Activación automática al escribir (>= 2 caracteres)
+   [✓] Activación manual con Ctrl+Space
+   [✓] Ventana flotante con sugerencias (máx 15 visibles)
+   [✓] 43 palabras clave de Go incluidas
+   [✓] Detección de funciones definidas en código
+   [✓] Detección de variables declaradas (var y :=)
+   [✓] Navegación con flechas ↑↓
+   [✓] Completar con Enter o Tab
+   [✓] Ocultar con Escape
+   [✓] Filtrado inteligente case-insensitive
+   Documentación: AUTOCOMPLETADO.txt
+
+⏳ PRÓXIMAS IMPLEMENTACIONES:
+   → Semana 6: Go to definition (#4)
+   → Semana 7: Refactorings automáticos
+   → Semana 8: Snippets y plantillas
+
+═══════════════════════════════════════════════════════════════════════════════════════
+�🔴 PRIORIDAD ALTA - Funcionalidades Esenciales
+═══════════════════════════════════════════════════════════════════════════════════════
+
+[✓] 1. AUTOCOMPLETADO (IntelliSense) - ✅ COMPLETADO (Semana 5)
+    [✓] Mostrar sugerencias mientras se escribe - COMPLETADO
+    [✓] Completar palabras clave (func, var, if, for, etc.) - COMPLETADO
+    [✓] Completar nombres de funciones y variables definidas - COMPLETADO
+    [✓] Activación automática (>= 2 chars) - COMPLETADO
+    [✓] Activación manual con Ctrl+Space - COMPLETADO
+    [✓] Navegación con flechas ↑↓ + Enter/Tab - COMPLETADO
+    [✓] Filtrado inteligente - COMPLETADO
+    [ ] Mostrar tooltip con información de funciones - PENDIENTE
+    [ ] Autocompletado de métodos (.method) - PENDIENTE
+    Documentación: AUTOCOMPLETADO.txt
+
+[✓] 2. DETECCIÓN DE ERRORES EN TIEMPO REAL - ✅ COMPLETADO (Semana 3)
+    [✓] Subrayar errores de sintaxis mientras se escribe - COMPLETADO
+    [✓] Panel inferior con lista de errores (hacer clic para ir a la línea) - COMPLETADO
+    [✓] Validación en tiempo real con delay de 750ms - COMPLETADO
+    [✓] Detecta errores de indentación, léxicos y sintaxis - COMPLETADO
+    [✓] Contador de errores actualizado en tiempo real - COMPLETADO
+    [✓] Colores codificados por tipo de error - COMPLETADO
+    [ ] Advertencias (variables no usadas, imports innecesarios) - PENDIENTE
+    [ ] Resaltar errores de tipo de datos - PENDIENTE
+    Documentación: DETECCION_ERRORES.txt
+
+[ ] 3. DESHACER/REHACER MEJORADO
+    └─ Ctrl+Z / Ctrl+Y con historial extendido (ya funciona por defecto en Tkinter)
+    [✓] Mostrar indicador visual de cambios sin guardar (*) - COMPLETADO
+    [✓] Confirmación al cerrar si hay cambios sin guardar - COMPLETADO
+
+[ ] 4. GO TO DEFINITION (Ir a definición)
+    └─ Ctrl+Click en una función/variable → Salta a donde se definió
+    └─ F12 para ir a definición
+    └─ Alt+← / Alt+→ para navegar historial de saltos
+
+[ ] 5. DEPURACIÓN BÁSICA (DEBUGGER)
+    └─ Agregar/quitar breakpoints con clic en números de línea
+    └─ Botón "Debug" (F9) para ejecutar paso a paso
+    └─ Panel de variables locales durante ejecución
+    └─ Ver valores de variables al hacer hover
+    └─ Step Over (F10), Step Into (F11), Continue (F5)
+
+═══════════════════════════════════════════════════════════════════════════════════════
+🟡 PRIORIDAD MEDIA - Productividad y UX
+═══════════════════════════════════════════════════════════════════════════════════════
+
+[✓] 6. MÚLTIPLES ARCHIVOS / PESTAÑAS - ✅ COMPLETADO (Semana 2)
+    [✓] Abrir varios archivos .go en pestañas - COMPLETADO
+    [✓] Cerrar pestañas con botón X o Ctrl+W - COMPLETADO
+    [✓] Cambiar entre pestañas con Ctrl+Tab - COMPLETADO
+    [✓] Sistema de tabs completo con EditorTab independientes - COMPLETADO
+    [✓] Cada tab con su propio estado (modificado, ruta, zoom) - COMPLETADO
+    Nota: Ver SISTEMA_TABS.txt para documentación completa
+
+[✓] 7. EXPLORADOR DE ARCHIVOS (SIDEBAR) - ✅ COMPLETADO (Semana 4)
+    [✓] Panel izquierdo con árbol de carpetas del proyecto - COMPLETADO
+    [✓] Crear/eliminar/renombrar archivos desde el IDE - COMPLETADO
+    [✓] Doble clic para abrir archivos - COMPLETADO
+    [✓] Iconos por tipo de archivo - COMPLETADO
+    [✓] Menú contextual completo - COMPLETADO
+    [✓] Integración con sistema de tabs - COMPLETADO
+    [ ] Filtrar archivos por extensión - PENDIENTE
+    [ ] Arrastrar y soltar archivos - PENDIENTE
+    Documentación: EXPLORADOR_ARCHIVOS.txt
+
+[ ] 8. TERMINAL INTEGRADA
+    └─ Panel inferior tipo terminal (ejecutar comandos del SO)
+    └─ Ejecutar go run, go build, go test directamente
+    └─ Historial de comandos con ↑ ↓
+    └─ Poder dividir en múltiples terminales
+
+[ ] 9. SNIPPETS / PLANTILLAS
+    └─ Escribir "main" + Tab → Genera func main() {...}
+    └─ Escribir "for" + Tab → Genera for i := 0; i < n; i++ {...}
+    └─ Escribir "if" + Tab → Genera if condition {...}
+    └─ Personalizar snippets propios
+
+[ ] 10. FORMATEO AUTOMÁTICO (gofmt)
+    └─ Botón o atajo (Shift+Alt+F) para formatear código
+    └─ Formateo automático al guardar (opcional)
+    └─ Alinear indentación correctamente
+    └─ Ordenar imports alfabéticamente
+
+[ ] 11. MINIMAP (Mapa de código)
+    └─ Barra vertical derecha con vista previa del código completo
+    └─ Hacer clic en minimap para saltar a esa línea
+    └─ Resaltar área visible actual
+
+[ ] 12. BUSCAR EN ARCHIVOS (Find in Files)
+    └─ Buscar texto en todos los archivos del proyecto
+    └─ Buscar y reemplazar en múltiples archivos
+    └─ Usar regex en búsquedas
+    └─ Panel de resultados con preview
+
+═══════════════════════════════════════════════════════════════════════════════════════
+🟢 PRIORIDAD BAJA - Extras y Pulido
+═══════════════════════════════════════════════════════════════════════════════════════
+
+[ ] 13. TEMAS PERSONALIZABLES
+    └─ Tema Oscuro (actual)
+    └─ Tema Claro
+    └─ Tema Alto Contraste
+    └─ Personalizar colores manualmente
+
+[ ] 14. CONTROL DE VERSIONES GIT
+    └─ Ver archivos modificados con indicador visual
+    └─ Botones para commit, push, pull
+    └─ Ver diff (cambios) en el editor
+    └─ Lista de commits y branches
+
+[ ] 15. EXTENSIONES / PLUGINS
+    └─ Sistema de plugins para agregar funcionalidades
+    └─ Marketplace de extensiones
+    └─ Soporte para Linters externos (golint, staticcheck)
+
+[ ] 16. ESTADÍSTICAS DEL CÓDIGO
+    └─ Contador de líneas de código
+    └─ Complejidad ciclomática
+    └─ Cobertura de tests
+    └─ Gráficas de rendimiento
+
+[ ] 17. DOCUMENTACIÓN INTEGRADA
+    └─ Panel de ayuda con documentación de Go
+    └─ Hover sobre funciones → Muestra documentación
+    └─ Acceso rápido a godoc.org
+
+[ ] 18. REFACTORING AUTOMÁTICO
+    └─ Renombrar variable/función en todo el proyecto (F2)
+    └─ Extraer función (seleccionar código → convertir en función)
+    └─ Extraer variable
+    └─ Cambiar firma de función
+
+[✓] 19. ZOOM EN EDITOR - ✅ COMPLETADO (Semana 1)
+    [✓] Ctrl + Rueda del ratón → Aumentar/disminuir tamaño de fuente - COMPLETADO
+    [✓] Indicador de nivel de zoom en barra de estado - COMPLETADO
+    [✓] Límites: 8pt mínimo, 30pt máximo - COMPLETADO
+    [✓] Zoom independiente por tab (Semana 2) - COMPLETADO
+    [ ] Ctrl+0 → Restaurar zoom por defecto - PENDIENTE
+    └─ Indicador de nivel de zoom
+
+[ ] 20. ATAJOS DE TECLADO PERSONALIZABLES
+    └─ Panel de configuración de atajos
+    └─ Importar/exportar configuración de atajos
+    └─ Mostrar cheatsheet de atajos disponibles
+
+[ ] 21. MODOS DE VISTA
+    └─ Modo Zen (ocultar todo excepto editor)
+    └─ Dividir editor horizontal/vertical (2 archivos al mismo tiempo)
+    └─ Pantalla completa (F11)
+
+[ ] 22. EXPORTAR RESULTADOS
+    └─ Exportar código C a archivo .c
+    └─ Exportar tokens a .json
+    └─ Exportar output de consola a .txt
+    └─ Generar reporte PDF con código + resultados
+
+[ ] 23. IMPORTAR PROYECTOS
+    └─ Abrir carpeta como proyecto
+    └─ Detectar go.mod y configurar automáticamente
+    └─ Importar múltiples archivos .go de un proyecto
+
+═══════════════════════════════════════════════════════════════════════════════════════
+🔧 MEJORAS TÉCNICAS (Backend)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+[ ] 24. OPTIMIZACIÓN DE RENDIMIENTO
+    └─ Resaltado de sintaxis incremental (solo líneas visibles)
+    └─ Cache de análisis léxico/sintáctico
+    └─ Carga lazy de archivos grandes
+
+[ ] 25. MEJOR MANEJO DE ERRORES
+    └─ Stack trace clickeable (ir a línea del error)
+    └─ Sugerencias de corrección automática
+    └─ Mensajes de error más descriptivos
+
+[ ] 26. TESTING INTEGRADO
+    └─ Ejecutar tests unitarios desde el IDE
+    └─ Ver cobertura de tests línea por línea
+    └─ Panel de resultados de tests con ✓ / ✗
+
+[ ] 27. ANÁLISIS ESTÁTICO
+    └─ Detectar código inalcanzable (dead code)
+    └─ Detectar variables no usadas
+    └─ Sugerir optimizaciones
+
+═══════════════════════════════════════════════════════════════════════════════════════
+📝 BUGS CONOCIDOS A CORREGIR
+═══════════════════════════════════════════════════════════════════════════════════════
+
+[✓] Error en swap paralelo (arr[j], arr[j+1] = arr[j+1], arr[j]) - CORREGIDO
+[ ] Algunos errores muestran "Error Sintaxis: None" sin detalles
+[ ] Revisar completitud de keywords en resaltado_sintaxis()
+
+═══════════════════════════════════════════════════════════════════════════════════════
+💡 SUGERENCIAS DE IMPLEMENTACIÓN INMEDIATA (Primeros pasos)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+SEMANA 1: Mejoras básicas de UX ✅ COMPLETADA
+  [✓] Fix: Swap paralelo corregido
+  [✓] Agregar indicador de cambios sin guardar (*) en título
+  [✓] Confirmación al cerrar con cambios sin guardar
+  [✓] Barra de estado con línea/columna/total/zoom
+  [✓] Ir a línea (Ctrl+G)
+  [✓] Duplicar línea (Ctrl+D)
+  [✓] Comentar/Descomentar (Ctrl+/)
+  [✓] Zoom con Ctrl+Rueda
+  [ ] Exportar código C a archivo .c (pendiente)
+
+SEMANA 2: Múltiples archivos
+  [ ] Sistema de pestañas para abrir múltiples archivos
+  [ ] Ctrl+W para cerrar pestaña activa
+  [ ] Ctrl+Tab para cambiar entre pestañas
+  [ ] Mostrar nombre del archivo en la pestaña
+
+SEMANA 3: Detección de errores
+  [ ] Subrayar errores de sintaxis en tiempo real con onda roja
+  [ ] Panel de lista de errores en parte inferior
+  [ ] Click en error → Ir a línea correspondiente
+  [ ] Mostrar count de errores en barra de estado
+
+SEMANA 4: Explorador de archivos
+  [ ] Sidebar izquierdo con árbol de carpetas
+  [ ] Abrir proyecto desde carpeta (File > Open Folder)
+  [ ] Crear/eliminar/renombrar archivos desde IDE
+  [ ] Iconos por tipo de archivo (.go, .txt, .md, etc.)
+
+═══════════════════════════════════════════════════════════════════════════════════════
+🎯 ROADMAP A LARGO PLAZO (Por trimestre)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+Q1 2026: Fundamentos
+  → Múltiples archivos/pestañas
+  → Explorador de archivos lateral
+  → Detección de errores en tiempo real
+  → Exportar código C/ASM a archivos
+
+Q2 2026: Productividad
+  → Autocompletado básico (keywords + variables)
+  → Terminal integrada
+  → Snippets/plantillas de código
+  → Formateo automático (gofmt)
+
+Q3 2026: Depuración
+  → Debugger básico con breakpoints
+  → Step over/into/out
+  → Panel de variables locales
+  → Watch expressions
+
+Q4 2026: Avanzado
+  → Control de versiones Git
+  → Minimap
+  → Búsqueda en archivos
+  → Refactoring automático (renombrar)
+
+═══════════════════════════════════════════════════════════════════════════════════════
+🚀 QUICK WINS (Mejoras rápidas de implementar - 1-2 horas c/u)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+1. [✓] Agregar barra de estado (parte inferior) con:
+       - Línea y columna actuales ✓
+       - Cantidad de líneas totales ✓
+       - Codificación (UTF-8) ✓
+       - Tipo de archivo (Go) ✓
+       - Nivel de zoom ✓
+
+2. [✓] Indicador de cambios sin guardar:
+       - Agregar * al título si hay cambios ✓
+       - Quitar * después de guardar ✓
+
+3. [✓] Confirmación al cerrar:
+       - Preguntar "¿Guardar cambios?" si hay modificaciones ✓
+       - También al crear nuevo archivo ✓
+
+4. [ ] Exportar código C:
+       - Botón "Guardar C" en menú Terminal
+       - Guardar contenido de pestaña "Código C Generado" a .c
+
+5. [✓] Ir a línea (Ctrl+G):
+       - Ventana emergente con input de número de línea ✓
+       - Saltar a esa línea al presionar Enter ✓
+       - Resaltar línea temporalmente ✓
+
+6. [✓] Duplicar línea (Ctrl+D):
+       - Duplicar la línea actual hacia abajo ✓
+       - También duplica texto seleccionado ✓
+
+7. [✓] Comentar/Descomentar (Ctrl+/):
+       - Agregar // al inicio de líneas seleccionadas ✓
+       - Quitar // si ya está comentado ✓
+       - Respeta indentación ✓
+
+8. [✓] Seleccionar todo (Ctrl+A):
+       - Ya implementado por Tkinter, funciona correctamente ✓
+
+9. [✓] Zoom con Ctrl+Rueda:
+       - Aumentar/disminuir tamaño de fuente dinámicamente ✓
+       - Indicador de porcentaje en barra de estado ✓
+       - Límites: 8pt min, 30pt max ✓
+
+10. [ ] Mostrar tooltip al hacer hover sobre keywords:
+        - "func: Define una función"
+        - "var: Declara una variable"
+
+═══════════════════════════════════════════════════════════════════════════════════════
+Última actualización: 19/02/2026
+
+✅ IMPLEMENTACIONES RECIENTES (19/02/2026):
+   - Barra de estado completa con línea/columna/total líneas/encoding/tipo/zoom
+   - Indicador de cambios sin guardar (*) en título de ventana
+   - Confirmación al cerrar o crear nuevo archivo si hay cambios
+   - Ir a línea (Ctrl+G) con resaltado temporal de la línea
+   - Duplicar línea (Ctrl+D) para línea actual o texto seleccionado
+   - Comentar/Descomentar (Ctrl+/) con respeto a indentación
+   - Zoom dinámico con Ctrl+Rueda (8pt-30pt) con indicador en barra
+   - Sistema de atajos mejorado y completo
+═══════════════════════════════════════════════════════════════════════════════════════
