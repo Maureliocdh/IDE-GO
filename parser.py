@@ -171,34 +171,6 @@ class Parser:
             while self.consume(TokenType.COMMA) and self.match(TokenType.IDENTIFIER):
                 identifiers.append(self.current_token().value)
                 self.advance()
-            
-            # At this point we either:
-            # 1. Hit end of params (RPAREN) - shouldn't happen, would mean no type
-            # 2. Hit a non-identifier after comma - that's the start of the type
-            # 3. Exhausted commas - next should be the type
-            
-            # If we stopped because of a non-identifier token after a comma,
-            # we need to back up because that's part of the type
-            # Actually, no - if we consumed a comma in the while condition but
-            # didn't match IDENTIFIER, the comma is still consumed but we didn't
-            # advance past anything after it.
-            
-            # If there's only one identifier and no comma was consumed,
-            # we need to check if this identifier is actually a name or a type
-            # For simplicity, assume the pattern is always: name(s) then type
-            # So if we have multiple identifiers, all but the last are names, 
-            # and we still need to parse the type
-            # If we have one identifier, it's a name and we need to parse the type
-            
-            # Actually, let's use a different strategy:
-            # The type is whatever comes after the last name
-            # Names are identifiers that are followed by commas or by a type
-            # So: parse identifier, if it's followed by a comma, it's a name
-            # Keep doing this, then parse the type
-            
-            # Simpler: After collecting ids with commas, parse a type
-            # The type might be a simple identifier (which we see as the current token)
-            # or a complex type (array, map, etc.)
 
             # Handle variadic parameter: ...type
             variadic = self.consume(TokenType.ELLIPSIS)
