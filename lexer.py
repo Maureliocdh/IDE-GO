@@ -185,8 +185,58 @@ class Lexer:
         while self.current_char() and self.current_char() != quote_char:
             if self.current_char() == '\\':
                 self.advance()
-                if self.current_char():
-                    value += self.current_char()
+                esc = self.current_char()
+                if esc == 'n':
+                    value += '\n'
+                elif esc == 't':
+                    value += '\t'
+                elif esc == 'r':
+                    value += '\r'
+                elif esc == '\\':
+                    value += '\\'
+                elif esc == '"':
+                    value += '"'
+                elif esc == "'":
+                    value += "'"
+                elif esc == 'a':
+                    value += '\a'
+                elif esc == 'b':
+                    value += '\b'
+                elif esc == 'f':
+                    value += '\f'
+                elif esc == 'v':
+                    value += '\v'
+                elif esc == '0':
+                    value += '\0'
+                elif esc == 'u':
+                    # \uXXXX — 4-hex unicode
+                    hex_str = ''
+                    for _ in range(4):
+                        self.advance()
+                        if self.current_char() and self.current_char() in '0123456789abcdefABCDEF':
+                            hex_str += self.current_char()
+                        else:
+                            break
+                    if len(hex_str) == 4:
+                        value += chr(int(hex_str, 16))
+                    else:
+                        value += 'u' + hex_str
+                elif esc == 'U':
+                    # \UXXXXXXXX — 8-hex unicode
+                    hex_str = ''
+                    for _ in range(8):
+                        self.advance()
+                        if self.current_char() and self.current_char() in '0123456789abcdefABCDEF':
+                            hex_str += self.current_char()
+                        else:
+                            break
+                    if len(hex_str) == 8:
+                        value += chr(int(hex_str, 16))
+                    else:
+                        value += 'U' + hex_str
+                elif esc is not None:
+                    value += esc  # fallback: keep as-is
+                if esc is not None:
                     self.advance()
             else:
                 value += self.current_char()
@@ -198,6 +248,16 @@ class Lexer:
     def read_number(self):
         value = ''
         has_dot = False
+        # Handle hex literals: 0x...
+        if self.current_char() == '0' and self.peek_char() and self.peek_char().lower() == 'x':
+            value += self.current_char()  # '0'
+            self.advance()
+            value += self.current_char()  # 'x' or 'X'
+            self.advance()
+            while self.current_char() and self.current_char() in '0123456789abcdefABCDEF':
+                value += self.current_char()
+                self.advance()
+            return value, TokenType.INT
         while self.current_char() and (self.current_char().isdigit() or self.current_char() == '.'):
             if self.current_char() == '.':
                 if has_dot or not self.peek_char() or not self.peek_char().isdigit():

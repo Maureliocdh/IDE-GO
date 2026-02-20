@@ -9,6 +9,7 @@ class Parser:
     def __init__(self, tokens: List[Token]):
         self.tokens = tokens
         self.pos = 0
+        self._no_complit = False  # when True, don't parse composite literals after identifiers
     
     def current_token(self) -> Optional[Token]:
         if self.pos >= len(self.tokens):
@@ -71,9 +72,11 @@ class Parser:
             self.advance()
             if self.consume(TokenType.LPAREN):
                 while not self.match(TokenType.RPAREN):
-                    self.skip_newlines()
+                    self.skip_statement_terminators()
+                    if self.match(TokenType.RPAREN):
+                        break
                     imports.append(self.parse_single_import())
-                    self.skip_newlines()
+                    self.skip_statement_terminators()
                 self.expect(TokenType.RPAREN)
             else:
                 imports.append(self.parse_single_import())
@@ -101,7 +104,11 @@ class Parser:
                 else:
                     declarations.append(var_decl)
             elif self.match(TokenType.CONST):
-                declarations.append(self.parse_const_decl())
+                result = self.parse_const_decl()
+                if isinstance(result, list):
+                    declarations.extend(result)
+                else:
+                    declarations.append(result)
             elif self.match(TokenType.TYPE):
                 declarations.append(self.parse_type_decl())
             elif self.match(TokenType.STRUCT):
@@ -147,6 +154,13 @@ class Parser:
         self.skip_newlines()
         return FuncDecl(name, params, returns, body, receiver)
     
+    def parse_parameter(self) -> Parameter:
+        """Parse a single parameter: name Type (for receiver declarations)"""
+        name = self.expect(TokenType.IDENTIFIER).value
+        variadic = self.consume(TokenType.ELLIPSIS)
+        type_ = self.parse_type()
+        return Parameter(name, type_, variadic)
+
     def parse_parameters(self) -> List[Parameter]:
         params = []
         while not self.match(TokenType.RPAREN):
@@ -185,12 +199,15 @@ class Parser:
             # Simpler: After collecting ids with commas, parse a type
             # The type might be a simple identifier (which we see as the current token)
             # or a complex type (array, map, etc.)
-            
+
+            # Handle variadic parameter: ...type
+            variadic = self.consume(TokenType.ELLIPSIS)
+
             type_ = self.parse_type()
             
             # Create parameters for all identifier names with this type
             for name in identifiers:
-                params.append(Parameter(name, type_))
+                params.append(Parameter(name, type_, variadic=variadic))
             
             # After parsing a parameter group, check  for comma before next group
             if not self.consume(TokenType.COMMA):
@@ -212,7 +229,7 @@ class Parser:
         values = []
         
         # Parse optional type if present
-        if self.match(TokenType.IDENTIFIER, TokenType.STAR, TokenType.LBRACKET, TokenType.MAP, TokenType.CHAN, TokenType.FUNC, TokenType.INTERFACE):
+        if self.match(TokenType.IDENTIFIER, TokenType.STAR, TokenType.LBRACKET, TokenType.MAP, TokenType.CHAN, TokenType.FUNC, TokenType.INTERFACE, TokenType.STRUCT):
             type_ = self.parse_type()
         
         # Parse optional value assignment
@@ -246,7 +263,7 @@ class Parser:
         values = []
         
         # Parse optional type if present
-        if self.match(TokenType.IDENTIFIER, TokenType.STAR, TokenType.LBRACKET, TokenType.MAP, TokenType.CHAN, TokenType.FUNC, TokenType.INTERFACE):
+        if self.match(TokenType.IDENTIFIER, TokenType.STAR, TokenType.LBRACKET, TokenType.MAP, TokenType.CHAN, TokenType.FUNC, TokenType.INTERFACE, TokenType.STRUCT):
             type_ = self.parse_type()
         
         # Parse optional value assignment
@@ -281,54 +298,158 @@ class Parser:
         self.skip_statement_terminators()
         return ConstDecl(name, type_, value)
     
-    def parse_const_decl(self) -> ConstDecl:
+    def _substitute_iota(self, expr, val: int):
+        """Recursively substitute 'iota' identifier with integer literal val."""
+        if isinstance(expr, Identifier) and expr.name == 'iota':
+            return Literal(str(val), TokenType.INT)
+        elif isinstance(expr, BinaryOp):
+            return BinaryOp(
+                self._substitute_iota(expr.left, val),
+                expr.op,
+                self._substitute_iota(expr.right, val)
+            )
+        elif isinstance(expr, UnaryOp):
+            return UnaryOp(expr.op, self._substitute_iota(expr.operand, val))
+        return expr
+
+    def parse_const_decl(self):
         self.expect(TokenType.CONST)
-        name = self.expect(TokenType.IDENTIFIER).value
-        type_ = None
-        
-        if self.match(TokenType.IDENTIFIER, TokenType.STAR, TokenType.LBRACKET, TokenType.MAP, TokenType.CHAN):
-            type_ = self.parse_type()
-        
-        self.expect(TokenType.ASSIGN)
-        value = self.parse_expression()
-        self.skip_statement_terminators()
-        return ConstDecl(name, type_, value)
-    
-    def parse_type_decl(self) -> TypeDecl:
+
+        if not self.match(TokenType.LPAREN):
+            # Single const: const Name [Type] = Value
+            name = self.expect(TokenType.IDENTIFIER).value
+            type_ = None
+            if self.match(TokenType.IDENTIFIER, TokenType.STAR, TokenType.LBRACKET, TokenType.MAP, TokenType.CHAN):
+                saved = self.pos
+                candidate = self.parse_type()
+                if self.match(TokenType.ASSIGN):
+                    type_ = candidate
+                else:
+                    self.pos = saved
+            self.expect(TokenType.ASSIGN)
+            value = self.parse_expression()
+            self.skip_statement_terminators()
+            return ConstDecl(name, type_, self._substitute_iota(value, 0))
+
+        # Grouped: const ( ... )
+        self.expect(TokenType.LPAREN)
+        decls = []
+        iota_val = 0
+        last_type = None
+        last_raw_value = None
+
+        self.skip_newlines()
+        while not self.match(TokenType.RPAREN, TokenType.EOF):
+            self.skip_newlines()
+            if self.match(TokenType.RPAREN):
+                break
+            if not self.match(TokenType.IDENTIFIER):
+                self.skip_newlines()
+                continue
+            name = self.current_token().value
+            self.advance()
+
+            type_ = None
+            # Detect optional explicit type (only if not followed by = or EOL)
+            if not self.match(TokenType.ASSIGN, TokenType.NEWLINE, TokenType.SEMICOLON, TokenType.RPAREN):
+                saved = self.pos
+                try:
+                    candidate = self.parse_type()
+                    if self.match(TokenType.ASSIGN):
+                        type_ = candidate
+                        last_type = type_
+                    else:
+                        self.pos = saved
+                except Exception:
+                    self.pos = saved
+
+            if self.consume(TokenType.ASSIGN):
+                raw_value = self.parse_expression()
+                value = self._substitute_iota(raw_value, iota_val)
+                last_raw_value = raw_value
+                if type_ is None:
+                    last_type = None
+            elif last_raw_value is not None:
+                value = self._substitute_iota(last_raw_value, iota_val)
+                type_ = last_type
+            else:
+                value = Literal(str(iota_val), TokenType.INT)
+
+            decls.append(ConstDecl(name, type_, value))
+            iota_val += 1
+            self.skip_statement_terminators()
+
+        self.expect(TokenType.RPAREN)
+        self.skip_newlines()
+        return decls
+
+    def parse_type_decl(self):
         self.expect(TokenType.TYPE)
         name = self.expect(TokenType.IDENTIFIER).value
-        type_ = self.parse_type()
-        self.skip_newlines()
-        return TypeDecl(name, type_)
-    
-    def parse_struct_decl(self) -> StructDecl:
+        if self.match(TokenType.STRUCT):
+            decl = self.parse_struct_body(name)
+            self.skip_newlines()
+            return decl
+        elif self.match(TokenType.INTERFACE):
+            decl = self.parse_interface_body(name)
+            self.skip_newlines()
+            return decl
+        else:
+            type_ = self.parse_type()
+            self.skip_newlines()
+            return TypeDecl(name, type_)
+
+    def parse_struct_body(self, name: str) -> StructDecl:
+        """Parse 'struct { fields }' starting from the STRUCT token."""
         self.expect(TokenType.STRUCT)
-        name = self.expect(TokenType.IDENTIFIER).value
         self.expect(TokenType.LBRACE)
         fields = []
         while not self.match(TokenType.RBRACE):
-            self.skip_newlines()
-            if self.match(TokenType.IDENTIFIER):
-                field_name = self.current_token().value
+            self.skip_statement_terminators()
+            if self.match(TokenType.RBRACE):
+                break
+            if self.match(TokenType.STAR):
+                # Pointer embedded field: *Base
                 self.advance()
-                field_type = self.parse_type()
-                tag = None
-                if self.match(TokenType.STRING):
-                    tag = self.current_token().value
-                    self.advance()
-                fields.append(StructField(field_name, field_type, tag))
-            self.skip_newlines()
+                embedded_name = self.expect(TokenType.IDENTIFIER).value
+                fields.append(StructField(embedded_name, PointerType(NamedType(embedded_name)), None, True))
+            elif self.match(TokenType.IDENTIFIER):
+                first_name = self.current_token().value
+                self.advance()
+                # Check if this is an embedded field (line ends after the name)
+                if self.match(TokenType.NEWLINE, TokenType.RBRACE, TokenType.SEMICOLON):
+                    fields.append(StructField(first_name, NamedType(first_name), None, True))
+                else:
+                    # Named field(s): name1, name2 type
+                    names = [first_name]
+                    while self.consume(TokenType.COMMA):
+                        names.append(self.expect(TokenType.IDENTIFIER).value)
+                    field_type = self.parse_type()
+                    tag = None
+                    if self.match(TokenType.STRING):
+                        tag = self.current_token().value
+                        self.advance()
+                    for n in names:
+                        fields.append(StructField(n, field_type, tag, False))
+            self.skip_statement_terminators()
         self.expect(TokenType.RBRACE)
-        self.skip_newlines()
         return StructDecl(name, fields)
-    
-    def parse_interface_decl(self) -> InterfaceDecl:
-        self.expect(TokenType.INTERFACE)
+
+    def parse_struct_decl(self) -> StructDecl:
+        """Legacy: struct Name { fields } - kept for compatibility."""
+        self.expect(TokenType.STRUCT)
         name = self.expect(TokenType.IDENTIFIER).value
+        return self.parse_struct_body(name)
+
+    def parse_interface_body(self, name: str) -> InterfaceDecl:
+        """Parse 'interface { methods }' starting from the INTERFACE token."""
+        self.expect(TokenType.INTERFACE)
         self.expect(TokenType.LBRACE)
         methods = []
         while not self.match(TokenType.RBRACE):
-            self.skip_newlines()
+            self.skip_statement_terminators()
+            if self.match(TokenType.RBRACE):
+                break
             if self.match(TokenType.IDENTIFIER):
                 method_name = self.current_token().value
                 self.advance()
@@ -340,13 +461,18 @@ class Parser:
                     self.advance()
                     returns = self.parse_types()
                     self.expect(TokenType.RPAREN)
-                elif not self.match(TokenType.RBRACE, TokenType.NEWLINE):
+                elif not self.match(TokenType.RBRACE, TokenType.NEWLINE, TokenType.SEMICOLON):
                     returns = [self.parse_type()]
                 methods.append(InterfaceMethod(method_name, FuncDecl(method_name, params, returns, None)))
-            self.skip_newlines()
+            self.skip_statement_terminators()
         self.expect(TokenType.RBRACE)
-        self.skip_newlines()
         return InterfaceDecl(name, methods)
+
+    def parse_interface_decl(self) -> InterfaceDecl:
+        """Legacy: interface Name { methods } - kept for compatibility."""
+        self.expect(TokenType.INTERFACE)
+        name = self.expect(TokenType.IDENTIFIER).value
+        return self.parse_interface_body(name)
     
     def parse_type(self) -> Type:
         if self.consume(TokenType.FUNC):
@@ -406,9 +532,39 @@ class Parser:
             return MapType(key_type, value_type)
         elif self.consume(TokenType.INTERFACE):
             # interface{} - empty interface (any type)
-            self.expect(TokenType.LBRACE)
-            self.expect(TokenType.RBRACE)
+            if self.match(TokenType.LBRACE):
+                self.advance()
+                if self.match(TokenType.RBRACE):
+                    self.advance()
+                else:
+                    # Non-empty inline interface – skip contents
+                    depth = 1
+                    while depth > 0 and not self.match(TokenType.EOF):
+                        if self.match(TokenType.LBRACE):
+                            depth += 1
+                        elif self.match(TokenType.RBRACE):
+                            depth -= 1
+                        self.advance()
             return InterfaceType([])
+        elif self.consume(TokenType.STRUCT):
+            # Inline struct type used in field/var declarations – parse and discard fields
+            self.expect(TokenType.LBRACE)
+            fields = []
+            while not self.match(TokenType.RBRACE):
+                self.skip_newlines()
+                if self.match(TokenType.IDENTIFIER):
+                    fname = self.current_token().value
+                    self.advance()
+                    names = [fname]
+                    while self.consume(TokenType.COMMA):
+                        names.append(self.expect(TokenType.IDENTIFIER).value)
+                    ftype = self.parse_type()
+                    for n in names:
+                        fields.append(StructField(n, ftype, None, False))
+                self.skip_newlines()
+            self.expect(TokenType.RBRACE)
+            # Return a placeholder type; caller creates StructDecl via parse_struct_body
+            return NamedType("__struct__")
         elif self.consume(TokenType.CHAN):
             if self.consume(TokenType.ARROW):
                 return ChannelType(self.parse_type(), "send")
@@ -451,6 +607,12 @@ class Parser:
         elif self.consume(TokenType.CONST):
             # Support const declarations inside function blocks
             return self.parse_const_decl_stmt()
+        elif self.match(TokenType.TYPE):
+            # Support local type declarations inside function blocks
+            decl = self.parse_type_decl()
+            if isinstance(decl, list):
+                return decl[0]
+            return decl
         elif self.consume(TokenType.RETURN):
             values = []
             if not self.match(TokenType.SEMICOLON, TokenType.NEWLINE, TokenType.RBRACE):
@@ -459,12 +621,24 @@ class Parser:
                     values.append(self.parse_expression())
             self.skip_statement_terminators()
             return ReturnStmt(values)
-        elif self.consume(TokenType.IF):
-            return self.parse_if_stmt()
+        if self.consume(TokenType.IF):
+            old_nc = self._no_complit
+            self._no_complit = True
+            stmt = self.parse_if_stmt()
+            self._no_complit = old_nc
+            return stmt
         elif self.consume(TokenType.FOR):
-            return self.parse_for_stmt()
+            old_nc = self._no_complit
+            self._no_complit = True
+            stmt = self.parse_for_stmt()
+            self._no_complit = old_nc
+            return stmt
         elif self.consume(TokenType.SWITCH):
-            return self.parse_switch_stmt()
+            old_nc = self._no_complit
+            self._no_complit = True
+            stmt = self.parse_switch_stmt()
+            self._no_complit = old_nc
+            return stmt
         elif self.consume(TokenType.DEFER):
             expr = self.parse_expression()
             self.skip_statement_terminators()
@@ -581,12 +755,17 @@ class Parser:
         # Try to parse as assignment (for init statement)
         # Check if next few tokens match pattern: IDENTIFIER WALRUS
         if self.match(TokenType.IDENTIFIER):
-            # Look ahead for := or =
+            # Look ahead for := or = (possibly with comma: c, ok := ...)
             next_tok = self.peek_token()
             if next_tok and next_tok.type in (TokenType.WALRUS, TokenType.ASSIGN):
-                # This looks like an assignment init statement
+                # Single-var init: if x := 5; x > 0
                 init = self.parse_assign_stmt()
                 self.consume(TokenType.SEMICOLON)  # Consume the semicolon
+                condition = self.parse_expression()
+            elif next_tok and next_tok.type == TokenType.COMMA:
+                # Multi-var init: if c, ok := g.(T); ok
+                init = self.parse_assign_stmt()
+                self.consume(TokenType.SEMICOLON)
                 condition = self.parse_expression()
             else:
                 # Not an assignment, just a regular condition
@@ -632,16 +811,24 @@ class Parser:
                 self.advance()
                 second_expr = self.parse_primary()
                 if self.consume(TokenType.WALRUS):
-                    # This is a range loop: for k, v := range iterable
+                    # Check if this is a range loop: for k, v := range iterable
                     if self.match(TokenType.IDENTIFIER) and self.current_token().value == 'range':
                         self.advance()
-                    iterable = self.parse_expression()
-                    if has_parens:
-                        self.expect(TokenType.RPAREN)
-                    body = self.parse_block()
-                    key_name = first_expr.name if isinstance(first_expr, Identifier) else str(first_expr)
-                    value_name = second_expr.name if isinstance(second_expr, Identifier) else str(second_expr)
-                    return ForRangeStmt(key_name, value_name, iterable, body)
+                        iterable = self.parse_expression()
+                        if has_parens:
+                            self.expect(TokenType.RPAREN)
+                        body = self.parse_block()
+                        key_name = first_expr.name if isinstance(first_expr, Identifier) else str(first_expr)
+                        value_name = second_expr.name if isinstance(second_expr, Identifier) else str(second_expr)
+                        return ForRangeStmt(key_name, value_name, iterable, body)
+                    else:
+                        # Multi-variable short declaration: for i, w := 0, 0; ...
+                        targets = [first_expr, second_expr]
+                        first_val = self.parse_expression()
+                        values = [first_val]
+                        while self.consume(TokenType.COMMA):
+                            values.append(self.parse_expression())
+                        init = AssignStmt(targets, values, ":=")
             # Check for WALRUS followed by "range" keyword (single-variable range loop)
             elif self.match(TokenType.WALRUS):
                 self.advance()
@@ -893,6 +1080,9 @@ class Parser:
                     args = []
                     while not self.match(TokenType.RPAREN):
                         args.append(self.parse_expression())
+                        # Handle spread: nums...
+                        if self.consume(TokenType.ELLIPSIS):
+                            args[-1] = EllipsisExpr(args[-1])
                         if not self.consume(TokenType.COMMA):
                             break
                     self.expect(TokenType.RPAREN)
@@ -926,7 +1116,7 @@ class Parser:
                         # Type assertion: x.(SomeType)
                         type_ = self.parse_type()
                         self.expect(TokenType.RPAREN)
-                        expr = TypeCast(expr, type_)
+                        expr = TypeCast(type_=type_, expr=expr)
                 elif self.match(TokenType.IDENTIFIER):
                     field = self.current_token().value
                     self.advance()
@@ -937,6 +1127,31 @@ class Parser:
                 op = self.current_token().value
                 self.advance()
                 expr = UnaryOp(op, expr)
+            elif not self._no_complit and isinstance(expr, Identifier) and self.match(TokenType.LBRACE):
+                # Composite literal: TypeName{ field: val, ... } or TypeName{ val, ... }
+                self.advance()  # consume {
+                self.skip_statement_terminators()
+                fields = []
+                while not self.match(TokenType.RBRACE, TokenType.EOF):
+                    first = self.parse_expression()
+                    if self.match(TokenType.COLON):
+                        self.advance()
+                        val = self.parse_expression()
+                        if isinstance(first, Identifier):
+                            fname = first.name
+                        elif isinstance(first, Literal):
+                            fname = first.value
+                        else:
+                            fname = str(first)
+                        fields.append((fname, val))
+                    else:
+                        fields.append(("", first))  # positional
+                    if not self.consume(TokenType.COMMA):
+                        break
+                    self.skip_statement_terminators()
+                self.skip_statement_terminators()
+                self.expect(TokenType.RBRACE)
+                expr = StructLiteral(expr.name, fields)
             else:
                 break
         
@@ -980,6 +1195,38 @@ class Parser:
             body = self.parse_block()
             # Use LambdaExpr for anonymous functions
             return LambdaExpr(params, returns, body)
+        elif self.match(TokenType.STRUCT):
+            # Anonymous struct literal: struct { fields }{ values }
+            self.advance()  # consume 'struct'
+            self.expect(TokenType.LBRACE)
+            field_names = []
+            while not self.match(TokenType.RBRACE):
+                self.skip_newlines()
+                if self.match(TokenType.IDENTIFIER):
+                    fname = self.current_token().value
+                    self.advance()
+                    names = [fname]
+                    while self.consume(TokenType.COMMA):
+                        names.append(self.expect(TokenType.IDENTIFIER).value)
+                    self.parse_type()  # consume the type (we just need field names)
+                    for n in names:
+                        field_names.append(n)
+                self.skip_newlines()
+            self.expect(TokenType.RBRACE)
+            # Parse struct value initializer
+            self.skip_newlines()
+            self.expect(TokenType.LBRACE)
+            values = []
+            self.skip_statement_terminators()
+            while not self.match(TokenType.RBRACE):
+                values.append(self.parse_expression())
+                if not self.consume(TokenType.COMMA):
+                    break
+                self.skip_statement_terminators()
+            self.skip_statement_terminators()
+            self.expect(TokenType.RBRACE)
+            field_pairs = [(field_names[i], values[i]) for i in range(min(len(field_names), len(values)))]
+            return StructLiteral("__anonymous__", field_pairs)
         elif self.match(TokenType.IDENTIFIER):
             name = self.current_token().value
             self.advance()
@@ -1106,6 +1353,7 @@ class Parser:
                 # Parse the initializer
                 self.advance()
                 pairs = []
+                self.skip_statement_terminators()
                 while not self.match(TokenType.RBRACE):
                     key = self.parse_expression()
                     self.expect(TokenType.COLON)
@@ -1113,6 +1361,8 @@ class Parser:
                     pairs.append((key, value))
                     if not self.consume(TokenType.COMMA):
                         break
+                    self.skip_statement_terminators()
+                self.skip_statement_terminators()
                 self.expect(TokenType.RBRACE)
                 return MapLiteral(pairs)
             else:

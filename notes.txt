@@ -1,0 +1,336 @@
+package main
+
+import "fmt"
+
+func zeroval(ival int) {
+    ival = 0
+}
+
+func zeroptr(iptr *int) {
+    *iptr = 0
+}
+
+func main() {
+    i := 1
+    fmt.Println("initial:", i)
+
+    zeroval(i)
+    fmt.Println("zeroval:", i)
+
+    zeroptr(&i)
+    fmt.Println("zeroptr:", i)
+
+    fmt.Println("pointer:", &i)
+}
+initial: 1
+zeroval: 1
+zeroptr: 0
+pointer: 0x42131100
+
+package main
+
+import (
+    "fmt"
+    "unicode/utf8"
+)
+
+func main() {
+
+    const s = "สวัสดี"
+
+    fmt.Println("Len:", len(s))
+
+    for i := 0; i < len(s); i++ {
+        fmt.Printf("%x ", s[i])
+    }
+    fmt.Println()
+
+    fmt.Println("Rune count:", utf8.RuneCountInString(s))
+
+    for idx, runeValue := range s {
+        fmt.Printf("%#U starts at %d\n", runeValue, idx)
+    }
+
+    fmt.Println("\nUsing DecodeRuneInString")
+    for i, w := 0, 0; i < len(s); i += w {
+        runeValue, width := utf8.DecodeRuneInString(s[i:])
+        fmt.Printf("%#U starts at %d\n", runeValue, i)
+        w = width
+
+        examineRune(runeValue)
+    }
+}
+
+func examineRune(r rune) {
+
+    if r == 't' {
+        fmt.Println("found tee")
+    } else if r == 'ส' {
+        fmt.Println("found so sua")
+    }
+}
+Len: 18
+e0 b8 aa e0 b8 a7 e0 b8 b1 e0 b8 aa e0 b8 94 e0 b8 b5 
+Rune count: 6
+U+0E2A 'ส' starts at 0
+U+0E27 'ว' starts at 3
+U+0E31 'ั' starts at 6
+U+0E2A 'ส' starts at 9
+U+0E14 'ด' starts at 12
+U+0E35 'ี' starts at 15
+Using DecodeRuneInString
+U+0E2A 'ส' starts at 0
+found so sua
+U+0E27 'ว' starts at 3
+U+0E31 'ั' starts at 6
+U+0E2A 'ส' starts at 9
+found so sua
+U+0E14 'ด' starts at 12
+U+0E35 'ี' starts at 15
+
+package main
+
+import "fmt"
+
+type person struct {
+    name string
+    age  int
+}
+
+func newPerson(name string) *person {
+
+    p := person{name: name}
+    p.age = 42
+    return &p
+}
+
+func main() {
+
+    fmt.Println(person{"Bob", 20})
+
+    fmt.Println(person{name: "Alice", age: 30})
+
+    fmt.Println(person{name: "Fred"})
+
+    fmt.Println(&person{name: "Ann", age: 40})
+
+    fmt.Println(newPerson("Jon"))
+
+    s := person{name: "Sean", age: 50}
+    fmt.Println(s.name)
+
+    sp := &s
+    fmt.Println(sp.age)
+
+    sp.age = 51
+    fmt.Println(sp.age)
+
+    dog := struct {
+        name   string
+        isGood bool
+    }{
+        "Rex",
+        true,
+    }
+    fmt.Println(dog)
+}
+
+{Bob 20}
+{Alice 30}
+{Fred 0}
+&{Ann 40}
+&{Jon 42}
+Sean
+50
+51
+{Rex true}
+
+package main
+
+import "fmt"
+
+type rect struct {
+    width, height int
+}
+
+func (r *rect) area() int {
+    return r.width * r.height
+}
+
+func (r rect) perim() int {
+    return 2*r.width + 2*r.height
+}
+
+func main() {
+    r := rect{width: 10, height: 5}
+
+    fmt.Println("area: ", r.area())
+    fmt.Println("perim:", r.perim())
+
+    rp := &r
+    fmt.Println("area: ", rp.area())
+    fmt.Println("perim:", rp.perim())
+}
+
+area:  50
+perim: 30
+area:  50
+perim: 30
+
+package main
+
+import (
+    "fmt"
+    "math"
+)
+
+type geometry interface {
+    area() float64
+    perim() float64
+}
+
+type rect struct {
+    width, height float64
+}
+type circle struct {
+    radius float64
+}
+
+func (r rect) area() float64 {
+    return r.width * r.height
+}
+func (r rect) perim() float64 {
+    return 2*r.width + 2*r.height
+}
+
+func (c circle) area() float64 {
+    return math.Pi * c.radius * c.radius
+}
+func (c circle) perim() float64 {
+    return 2 * math.Pi * c.radius
+}
+
+func measure(g geometry) {
+    fmt.Println(g)
+    fmt.Println(g.area())
+    fmt.Println(g.perim())
+}
+
+func detectCircle(g geometry) {
+    if c, ok := g.(circle); ok {
+        fmt.Println("circle with radius", c.radius)
+    }
+}
+
+func main() {
+    r := rect{width: 3, height: 4}
+    c := circle{radius: 5}
+
+    measure(r)
+    measure(c)
+
+    detectCircle(r)
+    detectCircle(c)
+}
+{3 4}
+12
+14
+{5}
+78.53981633974483
+31.41592653589793
+circle with radius 5
+
+package main
+
+import "fmt"
+
+type ServerState int
+
+const (
+    StateIdle ServerState = iota
+    StateConnected
+    StateError
+    StateRetrying
+)
+
+var stateName = map[ServerState]string{
+    StateIdle:      "idle",
+    StateConnected: "connected",
+    StateError:     "error",
+    StateRetrying:  "retrying",
+}
+
+func (ss ServerState) String() string {
+    return stateName[ss]
+}
+
+func main() {
+    ns := transition(StateIdle)
+    fmt.Println(ns)
+
+    ns2 := transition(ns)
+    fmt.Println(ns2)
+}
+
+func transition(s ServerState) ServerState {
+    switch s {
+    case StateIdle:
+        return StateConnected
+    case StateConnected, StateRetrying:
+
+        return StateIdle
+    case StateError:
+        return StateError
+    default:
+        panic(fmt.Errorf("unknown state: %s", s))
+    }
+}
+
+connected
+idle
+
+package main
+
+import "fmt"
+
+type base struct {
+    num int
+}
+
+func (b base) describe() string {
+    return fmt.Sprintf("base with num=%v", b.num)
+}
+
+type container struct {
+    base
+    str string
+}
+
+func main() {
+
+    co := container{
+        base: base{
+            num: 1,
+        },
+        str: "some name",
+    }
+
+    fmt.Printf("co={num: %v, str: %v}\n", co.num, co.str)
+
+    fmt.Println("also num:", co.base.num)
+
+    fmt.Println("describe:", co.describe())
+
+    type describer interface {
+        describe() string
+    }
+
+    var d describer = co
+    fmt.Println("describer:", d.describe())
+}
+
+co={num: 1, str: some name}
+also num: 1
+describe: base with num=1
+describer: base with num=1
+Siguiente ejemplo: Genéricos .

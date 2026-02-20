@@ -79,6 +79,9 @@ class Interpreter:
         self.output_widget = output_widget
         self.global_env = Environment()
         self.current_env = self.global_env
+        self.methods = {}       # type_name -> {method_name -> (FuncDecl, receiver_param)}
+        self.type_registry = {} # type_name -> StructDecl | TypeDecl
+        self._string_method_stack = set()  # guard against recursive String() calls
         self.setup_builtins()
     
     def setup_builtins(self):
@@ -87,39 +90,195 @@ class Interpreter:
         pass
     
     def print_output(self, message: str):
-        """Print to console or output widget"""
+        """Print to console or output widget, with trailing newline"""
         if self.output_widget:
             self.output_widget.insert("end", message + "\n")
             self.output_widget.see("end")
         else:
             print(message)
+
+    def print_output_inline(self, message: str):
+        """Print to console or output widget, WITHOUT trailing newline"""
+        if self.output_widget:
+            self.output_widget.insert("end", message)
+            self.output_widget.see("end")
+        else:
+            print(message, end='')
     
     def type_of(self, value: Value) -> str:
         """Get the type name of a value"""
         return value.type_name
     
-    def to_string(self, value: Value) -> str:
-        """Convert value to string representation - format like Go's fmt"""
+    def to_map_key(self, value: Value) -> str:
+        """Convert a value to a map key string (never calls custom String() methods)."""
         if value.type_name == "string":
             return value.value
-        elif value.type_name == "int":
-            return str(value.value)
-        elif value.type_name == "float":
-            return str(value.value)
+        elif value.type_name == "nil":
+            return "nil"
         elif value.type_name == "bool":
             return "true" if value.value else "false"
-        elif value.type_name == "nil":
+        elif isinstance(value.value, (int, float)):
+            return str(value.value)
+        else:
+            return str(value.value)
+
+    def to_string(self, value: Value) -> str:
+        """Convert value to string representation - format like Go's fmt"""
+        type_name = value.type_name
+        # Check for custom String() method (guard against recursion)
+        if (type_name in self.methods and
+                "String" in self.methods[type_name] and
+                type_name not in self._string_method_stack):
+            self._string_method_stack.add(type_name)
+            try:
+                method_decl, recv_param = self.methods[type_name]["String"]
+                result = self.call_method(method_decl, value, [])
+                return result.value if result.type_name == "string" else str(result.value)
+            finally:
+                self._string_method_stack.discard(type_name)
+        if type_name == "string":
+            return value.value
+        elif type_name in ("int", "rune"):
+            return str(value.value)
+        elif type_name == "float":
+            return str(value.value)
+        elif type_name == "bool":
+            return "true" if value.value else "false"
+        elif type_name == "nil":
             return "<nil>"
-        elif value.type_name == "array":
+        elif type_name == "error":
+            return str(value.value)
+        elif type_name == "array":
             if value.value is None:
                 return "[]"
             elements = [self.to_string(v) for v in value.value]
             return "[" + " ".join(elements) + "]"
-        elif value.type_name == "map":
-            pairs = [f"{k}: {self.to_string(v)}" for k, v in value.value.items()]
-            return "{" + ", ".join(pairs) + "}"
+        elif type_name == "map":
+            pairs = [f"{k}:{self.to_string(v)}" for k, v in sorted(value.value.items())]
+            return "map[" + " ".join(pairs) + "]" if pairs else "map[]"
+        elif type_name == "pointer":
+            # Auto-deref for display
+            if isinstance(value.value, dict):
+                # Check if it's a heap or env pointer
+                if "heap" in value.value:
+                    inner = value.value["heap"]
+                    return "&" + self.to_string(inner)
+                elif "env" in value.value:
+                    # Dereference env pointer to show actual value
+                    env = value.value["env"]
+                    name = value.value.get("name")
+                    if name:
+                        try:
+                            inner = env.get(name)
+                            return "&" + self.to_string(inner)
+                        except Exception:
+                            pass
+                    # Fallback: print as simulated memory address
+                    return "0x" + format(id(value.value["env"]) & 0xFFFFFFFF, '08x')
+            return "0x" + format(id(value.value) & 0xFFFFFFFF, '08x')
+        elif isinstance(value.value, dict):
+            # Struct value - print as {field1 field2 ...}
+            parts = [self.to_string(v) for v in value.value.values()]
+            return "{" + " ".join(parts) + "}"
         else:
             return str(value.value)
+
+    def _deref_pointer(self, ptr: Value) -> Value:
+        """Dereference a pointer Value."""
+        if ptr.type_name != "pointer":
+            return ptr
+        if isinstance(ptr.value, Value):
+            return ptr.value  # simple value pointer
+        if isinstance(ptr.value, dict):
+            if "heap" in ptr.value:
+                return ptr.value["heap"]
+            elif "env" in ptr.value:
+                return ptr.value["env"].get(ptr.value["name"])
+        return Value("nil", None)
+
+    def _assign_through_pointer(self, ptr: Value, new_val: Value):
+        """Write through a pointer."""
+        if isinstance(ptr.value, dict):
+            if "heap" in ptr.value:
+                heap_obj = ptr.value["heap"]
+                heap_obj.type_name = new_val.type_name
+                heap_obj.value = new_val.value
+            elif "env" in ptr.value:
+                ptr.value["env"].set(ptr.value["name"], new_val)
+        elif isinstance(ptr.value, Value):
+            ptr.value.type_name = new_val.type_name
+            ptr.value.value = new_val.value
+
+    def call_method(self, func_decl: FuncDecl, receiver: Value, args: list) -> Value:
+        """Call a method with a receiver."""
+        func_env = Environment(self.global_env)
+        if func_decl.receiver:
+            func_env.define(func_decl.receiver.name, receiver)
+        for i, param in enumerate(func_decl.params):
+            func_env.define(param.name, args[i] if i < len(args) else Value("nil", None))
+        prev_env = self.current_env
+        self.current_env = func_env
+        try:
+            if func_decl.body:
+                self.execute_block(func_decl.body)
+            return Value("nil", None)
+        except ReturnException as ret:
+            if len(ret.values) > 1:
+                return Value("tuple", ret.values)
+            return ret.values[0] if ret.values else Value("nil", None)
+        finally:
+            self.current_env = prev_env
+
+    def _format_string(self, fmt_str: str, args: list) -> str:
+        """Process format string with % verbs."""
+        import re
+        result = fmt_str
+        idx = 0
+        def replace_verb(m):
+            nonlocal idx
+            if idx >= len(args):
+                return m.group(0)
+            arg = args[idx]; idx += 1
+            verb = m.group(1)
+            if verb == 'v':
+                return self.to_string(arg)
+            elif verb == 's':
+                return self.to_string(arg)
+            elif verb == 'd':
+                return str(int(arg.value))
+            elif verb == 'f':
+                return str(float(arg.value))
+            elif verb == 'x':
+                return format(int(arg.value), 'x')
+            elif verb == 'X':
+                return format(int(arg.value), 'X')
+            elif verb == 'o':
+                return format(int(arg.value), 'o')
+            elif verb == 'b':
+                return format(int(arg.value), 'b')
+            elif verb == 'e':
+                return format(float(arg.value), 'e')
+            elif verb == 'g':
+                return str(float(arg.value))
+            elif verb == 't':
+                return 'true' if arg.value else 'false'
+            elif verb == 'T':
+                return arg.type_name
+            elif verb == 'p':
+                return '0x' + format(id(arg.value) & 0xFFFFFFFFFF, '010x')
+            elif verb == '#U':
+                # Unicode: U+0E2A '\u0e2a'
+                cp = int(arg.value)
+                ch = chr(cp)
+                return f"U+{cp:04X} '{ch}'"
+            elif verb == 'c':
+                return chr(int(arg.value))
+            elif verb == 'q':
+                return repr(self.to_string(arg))
+            return m.group(0)
+        result = re.sub(r'%([#]?[vsdfoObxXetTpUcq])', replace_verb, result)
+        result = result.replace('\\n', '\n').replace('\\t', '\t')
+        return result
     
     def is_truthy(self, value: Value) -> bool:
         """Check if a value is truthy"""
@@ -181,7 +340,22 @@ class Interpreter:
         
         else:
             return Value("nil", None)
-    
+
+    def _infer_map_zero(self, map_val: 'Value') -> 'Value':
+        """Infer zero value for a map based on its existing values"""
+        if map_val.value:
+            sample = next(iter(map_val.value.values()))
+            type_name = sample.type_name
+            if type_name == "int":
+                return Value("int", 0)
+            elif type_name == "float":
+                return Value("float", 0.0)
+            elif type_name == "string":
+                return Value("string", "")
+            elif type_name == "bool":
+                return Value("bool", False)
+        return Value("int", 0)  # default for empty/unknown maps
+
     def run(self):
         """Execute the program"""
         try:
@@ -195,10 +369,10 @@ class Interpreter:
             # Look for main function and execute it
             try:
                 main_func = self.global_env.get_function("main")
+            except (RuntimeError, KeyError, NameError):
+                main_func = None  # No main function, that's okay
+            if main_func is not None:
                 self.call_function(main_func, [])
-            except RuntimeError:
-                # No main function, that's okay
-                pass
         
         except Exception as e:
             import traceback
@@ -208,27 +382,37 @@ class Interpreter:
     def execute_declaration(self, decl: Union[FuncDecl, VarDecl, ConstDecl, TypeDecl, StructDecl, InterfaceDecl]):
         """Execute a top-level declaration"""
         if isinstance(decl, FuncDecl):
-            self.global_env.define_function(decl.name, decl)
+            if decl.receiver:
+                # Method with receiver: store in methods dict
+                recv_type = decl.receiver.type_
+                if isinstance(recv_type, PointerType):
+                    type_name = recv_type.type_.name if isinstance(recv_type.type_, NamedType) else str(recv_type.type_)
+                else:
+                    type_name = recv_type.name if isinstance(recv_type, NamedType) else str(recv_type)
+                if type_name not in self.methods:
+                    self.methods[type_name] = {}
+                self.methods[type_name][decl.name] = (decl, decl.receiver)
+            else:
+                self.global_env.define_function(decl.name, decl)
         elif isinstance(decl, VarDecl):
             value = None
             if decl.value:
                 value = self.eval_expression(decl.value)
             else:
-                # Initialize with zero value for the type
                 value = self.get_zero_value(decl.type_)
             self.global_env.define(decl.name, value)
         elif isinstance(decl, ConstDecl):
             value = self.eval_expression(decl.value)
+            # Preserve named type (e.g. StateIdle ServerState = iota)
+            if decl.type_ and isinstance(decl.type_, NamedType):
+                value = Value(decl.type_.name, value.value)
             self.global_env.define_const(decl.name, value)
         elif isinstance(decl, TypeDecl):
-            # Type declarations are just metadata in our interpreter
-            pass
+            self.type_registry[decl.name] = decl
         elif isinstance(decl, StructDecl):
-            # Struct declarations are stored for later use
-            pass
+            self.type_registry[decl.name] = decl
         elif isinstance(decl, InterfaceDecl):
-            # Interface declarations are stored for later use
-            pass
+            self.type_registry[decl.name] = decl
     
     def eval_expression(self, expr: Expression) -> Value:
         """Evaluate an expression"""
@@ -276,7 +460,7 @@ class Interpreter:
             type_str = type_str.name.lower()
         
         if type_str == "int":
-            return Value("int", int(lit.value))
+            return Value("int", int(lit.value, 0) if isinstance(lit.value, str) and lit.value.startswith('0x') else int(lit.value))
         elif type_str == "float":
             return Value("float", float(lit.value))
         elif type_str == "string":
@@ -392,12 +576,23 @@ class Interpreter:
         elif op.op == "^":
             return Value("int", ~int(operand.value))
         elif op.op == "&":
-            # Address-of operator (returns pointer)
-            return Value("pointer", operand)
+            # Address-of: create a reference pointer to the actual variable
+            operand_expr = op.operand
+            if isinstance(operand_expr, Identifier):
+                # Point to the environment variable by reference
+                return Value("pointer", {"env": self.current_env, "name": operand_expr.name})
+            elif isinstance(operand_expr, StructLiteral) or isinstance(operand_expr, CallExpr):
+                # Heap-allocated pointer (e.g. &person{...} or &SomeFunc(...))
+                heap_val = self.eval_expression(operand_expr)
+                return Value("pointer", {"heap": heap_val})
+            else:
+                # Fallback: evaluate and wrap
+                inner = self.eval_expression(operand_expr)
+                return Value("pointer", {"heap": inner})
         elif op.op == "*":
             # Dereference operator
             if operand.type_name == "pointer":
-                return operand.value
+                return self._deref_pointer(operand)
             else:
                 raise RuntimeError(f"Cannot dereference non-pointer type: {operand.type_name}")
         elif op.op == "++":
@@ -434,42 +629,82 @@ class Interpreter:
                         for arg in call.args:
                             val = self.eval_expression(arg)
                             output.append(self.to_string(val))
-                        self.print_output("".join(output))
+                        self.print_output_inline("".join(output))
                         return Value("nil", None)
                     elif method == "Printf":
                         if len(call.args) > 0:
                             format_val = self.eval_expression(call.args[0])
-                            format_str = str(format_val.value)
-                            args = [self.eval_expression(arg) for arg in call.args[1:]]
-                            
-                            # Simple printf implementation
-                            result = format_str
-                            for arg in args:
-                                # Replace various format specifiers
-                                if '%s' in result:
-                                    result = result.replace('%s', self.to_string(arg), 1)
-                                elif '%d' in result:
-                                    result = result.replace('%d', str(int(arg.value)), 1)
-                                elif '%f' in result:
-                                    result = result.replace('%f', str(float(arg.value)), 1)
-                                elif '%v' in result:
-                                    result = result.replace('%v', self.to_string(arg), 1)
-                                elif '%T' in result:
-                                    result = result.replace('%T', arg.type_name, 1)
-                            
-                            # Handle \n escape sequences
-                            result = result.replace('\\n', '\n')
-                            self.print_output(result)
+                            fmt_args = [self.eval_expression(arg) for arg in call.args[1:]]
+                            result = self._format_string(str(format_val.value), fmt_args)
+                            self.print_output_inline(result)
                         return Value("nil", None)
+                    elif method == "Sprintf":
+                        if len(call.args) > 0:
+                            format_val = self.eval_expression(call.args[0])
+                            fmt_args = [self.eval_expression(arg) for arg in call.args[1:]]
+                            result = self._format_string(str(format_val.value), fmt_args)
+                            return Value("string", result)
+                        return Value("string", "")
+                    elif method == "Errorf":
+                        if len(call.args) > 0:
+                            format_val = self.eval_expression(call.args[0])
+                            fmt_args = [self.eval_expression(arg) for arg in call.args[1:]]
+                            result = self._format_string(str(format_val.value), fmt_args)
+                            return Value("error", result)
+                        return Value("error", "")
                 
+                # Handle unicode/utf8 package
+                if package == "utf8":
+                    import unicodedata
+                    if method == "RuneCountInString":
+                        s = self.eval_expression(call.args[0]).value
+                        return Value("int", len(s))
+                    elif method == "DecodeRuneInString":
+                        s = self.eval_expression(call.args[0]).value
+                        if not s:
+                            return Value("tuple", [Value("rune", 0xFFFD), Value("int", 0)])
+                        ch = s[0]
+                        cp = ord(ch)
+                        width = len(ch.encode('utf-8'))
+                        return Value("tuple", [Value("rune", cp), Value("int", width)])
+                    elif method == "RuneLen":
+                        r = self.eval_expression(call.args[0]).value
+                        ch = chr(int(r))
+                        return Value("int", len(ch.encode('utf-8')))
+                    elif method == "ValidString":
+                        return Value("bool", True)
+
                 # Handle math package
                 if package == "math":
-                    if method == "Sin":
-                        if len(call.args) != 1:
-                            raise RuntimeError("math.Sin() takes exactly 1 argument")
+                    import math as _m
+                    _math_funcs1 = {
+                        "Sin": _m.sin, "Cos": _m.cos, "Tan": _m.tan,
+                        "Asin": _m.asin, "Acos": _m.acos, "Atan": _m.atan,
+                        "Sqrt": _m.sqrt, "Cbrt": _m.pow,
+                        "Exp": _m.exp, "Exp2": lambda x: 2**x,
+                        "Log": _m.log, "Log2": _m.log2, "Log10": _m.log10,
+                        "Abs": _m.fabs, "Ceil": _m.ceil, "Floor": _m.floor,
+                        "Round": round, "Trunc": _m.trunc,
+                        "Sinh": _m.sinh, "Cosh": _m.cosh, "Tanh": _m.tanh,
+                        "IsNaN": _m.isnan, "IsInf": lambda x: _m.isinf(x),
+                    }
+                    _math_funcs2 = {
+                        "Atan2": _m.atan2, "Pow": _m.pow, "Hypot": _m.hypot,
+                        "Remainder": _m.remainder, "Mod": _m.fmod,
+                        "Dim": lambda a, b: max(a - b, 0.0),
+                        "Max": max, "Min": min,
+                    }
+                    if method == "Inf":
+                        sign_arg = self.eval_expression(call.args[0]) if call.args else Value("int", 1)
+                        sign = float(sign_arg.value)
+                        return Value("float64", float('inf') if sign >= 0 else float('-inf'))
+                    if method in _math_funcs1:
                         arg = self.eval_expression(call.args[0])
-                        import math
-                        return Value("float", math.sin(float(arg.value)))
+                        return Value("float64", float(_math_funcs1[method](float(arg.value))))
+                    if method in _math_funcs2:
+                        a = self.eval_expression(call.args[0])
+                        b = self.eval_expression(call.args[1])
+                        return Value("float64", float(_math_funcs2[method](float(a.value), float(b.value))))
                 
                 # Handle slices package
                 if package == "slices":
@@ -513,15 +748,44 @@ class Interpreter:
                     if method == "Sunday":
                         return Value("int", 0)
             
-            # Handle method calls on objects (like t.Hour())
+            # Handle method calls on objects (like t.Hour(), user struct methods)
             obj = self.eval_expression(call.func.expr)
-            method = call.func.field
-            
-            if obj.type_name == "time":
-                if method == "Hour":
-                    return Value("int", obj.value.get("hour", 12))
-                elif method == "Weekday":
-                    return Value("int", obj.value.get("weekday", 1))
+            method_name = call.func.field
+
+            # Auto-deref pointer for method dispatch
+            actual = obj
+            if obj.type_name == "pointer":
+                actual = self._deref_pointer(obj)
+
+            type_name = actual.type_name
+
+            # Built-in type methods
+            if type_name == "time":
+                if method_name == "Hour":
+                    return Value("int", actual.value.get("hour", 12))
+                elif method_name == "Weekday":
+                    return Value("int", actual.value.get("weekday", 1))
+
+            # User-defined methods
+            if type_name in self.methods and method_name in self.methods[type_name]:
+                method_decl, recv_param = self.methods[type_name][method_name]
+                args = [self.eval_expression(a) for a in call.args]
+                # If receiver is pointer-type, pass the pointer so mutations work
+                if isinstance(recv_param.type_, PointerType):
+                    return self.call_method(method_decl, obj, args)
+                return self.call_method(method_decl, actual, args)
+
+            # Check embedded struct types for method
+            if isinstance(actual.value, dict):
+                for emb_key, emb_val in actual.value.items():
+                    if isinstance(emb_val, Value):
+                        emb_type = emb_val.type_name
+                        if emb_type in self.methods and method_name in self.methods[emb_type]:
+                            method_decl, recv_param = self.methods[emb_type][method_name]
+                            args = [self.eval_expression(a) for a in call.args]
+                            return self.call_method(method_decl, emb_val, args)
+
+            raise RuntimeError(f"Method '{method_name}' not found on type '{type_name}'")
         
         if isinstance(call.func, Identifier):
             func_name = call.func.name
@@ -532,7 +796,8 @@ class Interpreter:
                     raise RuntimeError("len() takes exactly 1 argument")
                 arg = self.eval_expression(call.args[0])
                 if arg.type_name == "string":
-                    return Value("int", len(arg.value))
+                    # Go's len() counts bytes, not characters
+                    return Value("int", len(arg.value.encode('utf-8')))
                 elif arg.type_name == "array":
                     if arg.value is None:  # nil slice
                         return Value("int", 0)
@@ -594,10 +859,26 @@ class Interpreter:
                 if key_str in map_val.value:
                     del map_val.value[key_str]
                 return Value("nil", None)
+
+            elif func_name == "clear":
+                if len(call.args) != 1:
+                    raise RuntimeError("clear() requires exactly 1 argument")
+                container = self.eval_expression(call.args[0])
+                if container.type_name == "map":
+                    container.value.clear()
+                elif container.type_name == "array" and container.value is not None:
+                    container.value.clear()
+                return Value("nil", None)
+
             if func_name == "print":
                 for arg in call.args:
                     val = self.eval_expression(arg)
                     self.print_output(self.to_string(val))
+                return Value("nil", None)
+
+            elif func_name == "panic":
+                msg = self.eval_expression(call.args[0]) if call.args else Value("string", "panic")
+                raise RuntimeError(f"panic: {self.to_string(msg)}")
                 return Value("nil", None)
             
             elif func_name == "println":
@@ -681,7 +962,15 @@ class Interpreter:
                 # User-defined function
                 try:
                     func_decl = self.current_env.get_function(func_name)
-                    args = [self.eval_expression(arg) for arg in call.args]
+                    # Handle nums... spread: if last arg is EllipsisExpr, unpack the slice
+                    raw_args = call.args
+                    if raw_args and isinstance(raw_args[-1], EllipsisExpr):
+                        spread_val = self.eval_expression(raw_args[-1].expr)
+                        args = [self.eval_expression(a) for a in raw_args[:-1]]
+                        if spread_val.type_name == "array" and spread_val.value:
+                            args.extend(spread_val.value)
+                    else:
+                        args = [self.eval_expression(arg) for arg in raw_args]
                     return self.call_function(func_decl, args)
                 except RuntimeError:
                     # Check if it's a variable holding a function (closure)
@@ -701,9 +990,12 @@ class Interpreter:
         # Create new environment for function
         func_env = Environment(self.global_env)
         
-        # Bind parameters
+        # Bind parameters — handle variadic last param
         for i, param in enumerate(func_decl.params):
-            if i < len(args):
+            if param.variadic:
+                # Pack all remaining args into a slice
+                func_env.define(param.name, Value("array", list(args[i:])))
+            elif i < len(args):
                 func_env.define(param.name, args[i])
             else:
                 func_env.define(param.name, Value("nil", None))
@@ -760,36 +1052,74 @@ class Interpreter:
         """Evaluate array/map indexing"""
         expr = self.eval_expression(idx.expr)
         index = self.eval_expression(idx.index)
-        
+
+        # Auto-deref pointer
+        if expr.type_name == "pointer":
+            expr = self._deref_pointer(expr)
+
         if expr.type_name == "array":
             i = int(index.value)
+            if expr.value is None:
+                raise RuntimeError("index on nil slice")
             if 0 <= i < len(expr.value):
                 return expr.value[i]
             else:
                 raise RuntimeError(f"Array index out of bounds: {i}")
         elif expr.type_name == "map":
-            key = self.to_string(index)
+            key = self.to_map_key(index)
             if key in expr.value:
                 return expr.value[key]
             else:
-                return Value("nil", None)
+                return self._infer_map_zero(expr)
         elif expr.type_name == "string":
             i = int(index.value)
-            if 0 <= i < len(expr.value):
-                return Value("rune", ord(expr.value[i]))
+            s = expr.value
+            if 0 <= i < len(s.encode('utf-8')):
+                # Return byte at that position
+                return Value("int", s.encode('utf-8')[i])
             else:
                 raise RuntimeError(f"String index out of bounds: {i}")
         else:
             raise RuntimeError(f"Cannot index {expr.type_name}")
     
     def eval_field(self, field: FieldExpr) -> Value:
-        """Evaluate field access"""
+        """Evaluate field access (struct.field, auto-deref pointers, methods)"""
+        # Handle math package constants before evaluating the object expression
+        if isinstance(field.expr, Identifier) and field.expr.name == "math":
+            import math as _math
+            _math_consts = {
+                "Pi": _math.pi, "E": _math.e, "Phi": 1.618033988749895,
+                "Sqrt2": _math.sqrt(2), "SqrtE": _math.sqrt(_math.e),
+                "SqrtPi": _math.sqrt(_math.pi), "SqrtPhi": _math.sqrt(1.618033988749895),
+                "Ln2": _math.log(2), "Log2E": _math.log2(_math.e),
+                "Ln10": _math.log(10), "Log10E": _math.log10(_math.e),
+                "MaxFloat64": 1.7976931348623157e+308, "SmallestNonzeroFloat64": 5e-324,
+                "MaxInt": 9223372036854775807, "MinInt": -9223372036854775808,
+                "Inf": float('inf'), "NaN": float('nan'),
+            }
+            fname = field.field
+            if fname in _math_consts:
+                return Value("float64", _math_consts[fname])
         obj = self.eval_expression(field.expr)
-        
-        if isinstance(obj.value, dict) and field.field in obj.value:
-            return obj.value[field.field]
-        
-        raise RuntimeError(f"Field {field.field} not found")
+
+        # Auto-dereference pointer
+        actual = obj
+        if obj.type_name == "pointer":
+            actual = self._deref_pointer(obj)
+
+        field_name = field.field
+
+        # Direct struct field access
+        if isinstance(actual.value, dict):
+            if field_name in actual.value:
+                return actual.value[field_name]
+            # Check embedded fields
+            for k, v in actual.value.items():
+                if isinstance(v, Value) and isinstance(v.value, dict) and field_name in v.value:
+                    return v.value[field_name]
+
+        # Package-level or function variable access (fallback)
+        raise RuntimeError(f"Field '{field_name}' not found on {actual.type_name}")
     
     def eval_array_literal(self, arr: ArrayLiteral) -> Value:
         """Evaluate array literal"""
@@ -800,32 +1130,89 @@ class Interpreter:
         """Evaluate map literal"""
         map_dict = {}
         for key, value in map_lit.pairs:
-            k = self.to_string(self.eval_expression(key))
+            self.skip_newlines_hook()
+            k = self.to_map_key(self.eval_expression(key))
             v = self.eval_expression(value)
             map_dict[k] = v
         return Value("map", map_dict)
+
+    def skip_newlines_hook(self):
+        """No-op hook for map literal evaluation (placeholder)."""
+        pass
     
     def eval_struct_literal(self, struct_lit: StructLiteral) -> Value:
         """Evaluate struct literal"""
+        # Look up type definition for field ordering / zero values
+        type_name = struct_lit.type_
+        type_def = self.type_registry.get(type_name)
         struct_dict = {}
-        for field_name, field_value in struct_lit.fields:
-            struct_dict[field_name] = self.eval_expression(field_value)
-        return Value(struct_lit.type_, struct_dict)
+
+        # Pre-fill with zero values if type is known
+        if type_def and isinstance(type_def, StructDecl):
+            for f in type_def.fields:
+                struct_dict[f.name] = self.get_zero_value(f.type_)
+
+        if struct_lit.fields and struct_lit.fields[0][0] == "":
+            # Positional fields
+            if type_def and isinstance(type_def, StructDecl):
+                for i, (_, val_expr) in enumerate(struct_lit.fields):
+                    if i < len(type_def.fields):
+                        struct_dict[type_def.fields[i].name] = self.eval_expression(val_expr)
+            else:
+                for i, (_, val_expr) in enumerate(struct_lit.fields):
+                    struct_dict[f"_f{i}"] = self.eval_expression(val_expr)
+        else:
+            # Named fields (may be mixed with keys from embedded structs)
+            for field_name, val_expr in struct_lit.fields:
+                if field_name == "":
+                    continue
+                val = self.eval_expression(val_expr)
+                # Check if this field is actually an embedded struct field name
+                if (type_def and isinstance(type_def, StructDecl) and
+                        any(f.name == field_name and f.embedded for f in type_def.fields)):
+                    struct_dict[field_name] = val
+                else:
+                    struct_dict[field_name] = val
+        return Value(type_name, struct_dict)
     
     def eval_type_cast(self, cast: TypeCast) -> Value:
-        """Evaluate type cast"""
+        """Evaluate type cast or type assertion"""
         expr = self.eval_expression(cast.expr)
-        
+
         if isinstance(cast.type_, PrimitiveType):
             if cast.type_.name == "int":
                 return Value("int", int(float(expr.value)))
-            elif cast.type_.name == "float64":
+            elif cast.type_.name in ("float64", "float32", "float"):
                 return Value("float", float(expr.value))
             elif cast.type_.name == "string":
+                # int->string: interpret as rune
+                if expr.type_name in ("int", "rune"):
+                    return Value("string", chr(int(expr.value)))
                 return Value("string", self.to_string(expr))
             elif cast.type_.name == "bool":
                 return Value("bool", self.is_truthy(expr))
-        
+            elif cast.type_.name in ("byte", "uint8", "int8", "int16", "int32", "int64",
+                                     "uint", "uint16", "uint32", "uint64", "uintptr"):
+                return Value("int", int(float(expr.value)))
+            elif cast.type_.name == "rune":
+                return Value("rune", int(expr.value))
+        elif isinstance(cast.type_, NamedType):
+            target_name = cast.type_.name
+            # Auto-deref pointer for type assertions
+            actual = expr
+            if expr.type_name == "pointer":
+                actual = self._deref_pointer(expr)
+            # Same underlying type or struct match
+            if actual.type_name == target_name:
+                return actual
+            if isinstance(actual.value, dict):
+                # Struct value cast to named type (interface assertion)
+                return Value(target_name, actual.value)
+            # Numeric cast to named type
+            if isinstance(actual.value, (int, float)):
+                return Value(target_name, actual.value)
+            return Value(target_name, actual.value)
+
         return expr
     
     def eval_ternary(self, ternary: TernaryOp) -> Value:
@@ -852,7 +1239,15 @@ class Interpreter:
         if slice_expr.end:
             end = int(self.eval_expression(slice_expr.end).value)
         
-        if expr.type_name in ["array", "string"]:
+        if expr.type_name == "string":
+            # Go string slicing uses byte offsets
+            encoded = expr.value.encode('utf-8')
+            if slice_expr.end:
+                sliced_bytes = encoded[start:end]
+            else:
+                sliced_bytes = encoded[start:]
+            return Value("string", sliced_bytes.decode('utf-8'))
+        elif expr.type_name in ["array"]:
             sliced = expr.value[start:end]
             return Value(expr.type_name, sliced)
         else:
@@ -966,6 +1361,10 @@ class Interpreter:
         
         elif isinstance(stmt, IncDecStmt):
             self.execute_inc_dec(stmt)
+        
+        elif isinstance(stmt, (StructDecl, InterfaceDecl, TypeDecl)):
+            # Local type declaration inside a function — register it
+            self.execute_declaration(stmt)
     
     def execute_if(self, if_stmt: IfStmt):
         """Execute if statement"""
@@ -1052,18 +1451,19 @@ class Interpreter:
                     continue
         
         elif iterable.type_name == "string":
-            for i, char in enumerate(iterable.value):
+            byte_pos = 0
+            for rune_char in iterable.value:
                 if for_range.key and for_range.key != "_":
-                    self.current_env.define(for_range.key, Value("int", i))
+                    self.current_env.define(for_range.key, Value("int", byte_pos))
                 if for_range.value and for_range.value != "_":
-                    self.current_env.define(for_range.value, Value("rune", ord(char)))
-                
+                    self.current_env.define(for_range.value, Value("rune", ord(rune_char)))
                 try:
                     self.execute_block(for_range.body)
                 except BreakException:
                     break
                 except ContinueException:
-                    continue
+                    pass
+                byte_pos += len(rune_char.encode('utf-8'))
     
     def execute_switch(self, switch_stmt: SwitchStmt):
         """Execute switch statement"""
@@ -1109,104 +1509,137 @@ class Interpreter:
     
     def execute_assign(self, assign: AssignStmt):
         """Execute assignment statement"""
-        if assign.operator == ":=":
-            # Short variable declaration
-            # Special handling for multi-value assignment from single expression
-            if len(assign.values) == 1 and len(assign.targets) > 1:
-                value = self.eval_expression(assign.values[0])
-                # If the value is a tuple (multiple returns), unpack it
-                if value.type_name == "tuple" and isinstance(value.value, list):
-                    for i, target in enumerate(assign.targets):
-                        if isinstance(target, Identifier):
-                            # Skip blank identifier
-                            if target.name == "_":
-                                continue
-                            v = value.value[i] if i < len(value.value) else Value("nil", None)
-                            self.current_env.define(target.name, v)
+        def _eval_single_or_comma_ok(val_expr):
+            """Evaluate expression; return (val, bool) tuple for comma-ok patterns."""
+            if isinstance(val_expr, IndexExpr):
+                container = self.eval_expression(val_expr.expr)
+                if container.type_name == "map":
+                    key = self.to_map_key(self.eval_expression(val_expr.index))
+                    exists = key in container.value
+                    map_val = container.value[key] if exists else self._infer_map_zero(container)
+                    return Value("tuple", [map_val, Value("bool", exists)])
+            elif isinstance(val_expr, TypeCast):
+                # Type assertion comma-ok: c, ok := x.(T)
+                obj = self.eval_expression(val_expr.expr)
+                if obj.type_name == "pointer":
+                    obj = self._deref_pointer(obj)
+                target_type = val_expr.type_
+                target_name = target_type.name if isinstance(target_type, NamedType) else None
+                if target_name and obj.type_name == target_name:
+                    return Value("tuple", [obj, Value("bool", True)])
+                # Type assertion fails
+                return Value("tuple", [Value("nil", None), Value("bool", False)])
+            return self.eval_expression(val_expr)
+
+        def _assign_target(target, value, op, is_define):
+            """Assign value to a single target."""
+            if isinstance(target, Identifier):
+                if target.name == "_":
+                    return
+                if op in ("+=", "-=", "*=", "/=", "%=", "&=", "|=", "^="):
+                    current = self.current_env.get(target.name)
+                    value = self._apply_compound_op(op[:-1], current, value)
+                if is_define:
+                    self.current_env.define(target.name, value)
                 else:
-                    # Not a tuple, assign same value to first target, nil to rest
-                    for i, target in enumerate(assign.targets):
-                        if isinstance(target, Identifier):
-                            # Skip blank identifier
-                            if target.name == "_":
-                                continue
-                            v = value if i == 0 else Value("nil", None)
-                            self.current_env.define(target.name, v)
-            else:
-                # Regular parallel assignment
-                # Evaluate ALL right-hand side values BEFORE assigning
-                values = []
-                for i in range(len(assign.targets)):
-                    if i < len(assign.values):
-                        values.append(self.eval_expression(assign.values[i]))
+                    self.current_env.set(target.name, value)
+            elif isinstance(target, FieldExpr):
+                # obj.field = value (auto-deref if pointer)
+                obj = self.eval_expression(target.expr)
+                if obj.type_name == "pointer":
+                    obj = self._deref_pointer(obj)
+                if isinstance(obj.value, dict):
+                    fname = target.field
+                    if fname in obj.value:
+                        if op in ("+=", "-=", "*=", "/=", "%="):
+                            value = self._apply_compound_op(op[:-1], obj.value[fname], value)
+                        obj.value[fname] = value
                     else:
-                        values.append(Value("nil", None))
-                
-                # Now assign the evaluated values
+                        # Check embedded fields
+                        for emb_val in obj.value.values():
+                            if isinstance(emb_val, Value) and isinstance(emb_val.value, dict) and fname in emb_val.value:
+                                obj.value[fname] = value
+                                return
+                        obj.value[fname] = value  # create new field
+            elif isinstance(target, UnaryOp) and target.op == "*":
+                # *ptr = value
+                ptr = self.eval_expression(target.operand)
+                if ptr.type_name == "pointer":
+                    self._assign_through_pointer(ptr, value)
+            elif isinstance(target, IndexExpr):
+                expr_val = self.eval_expression(target.expr)
+                if expr_val.type_name == "pointer":
+                    expr_val = self._deref_pointer(expr_val)
+                index_val = self.eval_expression(target.index)
+                if op in ("+=", "-=", "*=", "/=", "%="):
+                    op_base = op[:-1]
+                    if expr_val.type_name == "array":
+                        current = expr_val.value[int(index_val.value)]
+                        value = self._apply_compound_op(op_base, current, value)
+                        expr_val.value[int(index_val.value)] = value
+                    elif expr_val.type_name == "map":
+                        key = self.to_map_key(index_val)
+                        current = expr_val.value.get(key, Value("int", 0))
+                        value = self._apply_compound_op(op_base, current, value)
+                        expr_val.value[key] = value
+                else:
+                    if expr_val.type_name == "array":
+                        expr_val.value[int(index_val.value)] = value
+                    elif expr_val.type_name == "map":
+                        expr_val.value[self.to_map_key(index_val)] = value
+
+        op = assign.operator
+        is_define = (op == ":=")
+
+        # Multi-target from single expression (tuple unpack / comma-ok)
+        if len(assign.values) == 1 and len(assign.targets) > 1:
+            value = _eval_single_or_comma_ok(assign.values[0])
+            if value.type_name == "tuple" and isinstance(value.value, list):
                 for i, target in enumerate(assign.targets):
-                    if isinstance(target, Identifier):
-                        # Skip blank identifier
-                        if target.name == "_":
-                            continue
-                        self.current_env.define(target.name, values[i])
+                    v = value.value[i] if i < len(value.value) else Value("nil", None)
+                    _assign_target(target, v, "=", is_define)
+            else:
+                _assign_target(assign.targets[0], value, "=", is_define)
+                for target in assign.targets[1:]:
+                    _assign_target(target, Value("nil", None), "=", is_define)
         else:
-            # Regular assignment
-            # Special handling for multi-value assignment from single expression
-            if len(assign.values) == 1 and len(assign.targets) > 1:
-                value = self.eval_expression(assign.values[0])
-                # If the value is a tuple (multiple returns), unpack it
-                if value.type_name == "tuple" and isinstance(value.value, list):
-                    for i, target in enumerate(assign.targets):
-                        if isinstance(target, Identifier):
-                            v = value.value[i] if i < len(value.value) else Value("nil", None)
-                            self.current_env.set(target.name, v)
-                        elif isinstance(target, IndexExpr):
-                            v = value.value[i] if i < len(value.value) else Value("nil", None)
-                            expr = self.eval_expression(target.expr)
-                            index = self.eval_expression(target.index)
-                            if expr.type_name == "array":
-                                expr.value[int(index.value)] = v
-                            elif expr.type_name == "map":
-                                expr.value[self.to_string(index)] = v
+            # Evaluate all RHS first (handles swap: a, b = b, a)
+            values = []
+            for i in range(len(assign.targets)):
+                if i < len(assign.values):
+                    values.append(self.eval_expression(assign.values[i]))
                 else:
-                    # Not a tuple, assign same value to first target, nil to rest
-                    for i, target in enumerate(assign.targets):
-                        if isinstance(target, Identifier):
-                            v = value if i == 0 else Value("nil", None)
-                            self.current_env.set(target.name, v)
-                        elif isinstance(target, IndexExpr):
-                            v = value if i == 0 else Value("nil", None)
-                            expr = self.eval_expression(target.expr)
-                            index = self.eval_expression(target.index)
-                            if expr.type_name == "array":
-                                expr.value[int(index.value)] = v
-                            elif expr.type_name == "map":
-                                expr.value[self.to_string(index)] = v
-            else:
-                # Regular parallel assignment
-                # CRITICAL: Evaluate ALL right-hand side values BEFORE assigning
-                # This is necessary for swap operations like arr[j], arr[j+1] = arr[j+1], arr[j]
-                values = []
-                for i in range(len(assign.targets)):
-                    if i < len(assign.values):
-                        values.append(self.eval_expression(assign.values[i]))
-                    else:
-                        values.append(Value("nil", None))
-                
-                # Now assign the evaluated values
-                for i, target in enumerate(assign.targets):
-                    value = values[i]
-                    if isinstance(target, Identifier):
-                        self.current_env.set(target.name, value)
-                    elif isinstance(target, IndexExpr):
-                        # Handle index assignment
-                        expr = self.eval_expression(target.expr)
-                        index = self.eval_expression(target.index)
-                        if expr.type_name == "array":
-                            expr.value[int(index.value)] = value
-                        elif expr.type_name == "map":
-                            expr.value[self.to_string(index)] = value
-    
+                    values.append(Value("nil", None))
+            for i, target in enumerate(assign.targets):
+                _assign_target(target, values[i], op, is_define)
+
+
+    def _apply_compound_op(self, op: str, left: 'Value', right: 'Value') -> 'Value':
+        """Apply a binary operator for compound assignment (+=, -=, etc.)"""
+        lv = left.value
+        rv = right.value
+        if op == "+":
+            if left.type_name == "string":
+                return Value("string", str(lv) + str(rv))
+            return Value(left.type_name, lv + rv)
+        elif op == "-":
+            return Value(left.type_name, lv - rv)
+        elif op == "*":
+            return Value(left.type_name, lv * rv)
+        elif op == "/":
+            if left.type_name in ("float", "float64", "float32"):
+                return Value(left.type_name, lv / rv)
+            return Value(left.type_name, int(lv // rv))
+        elif op == "%":
+            return Value(left.type_name, lv % rv)
+        elif op == "&":
+            return Value(left.type_name, int(lv) & int(rv))
+        elif op == "|":
+            return Value(left.type_name, int(lv) | int(rv))
+        elif op == "^":
+            return Value(left.type_name, int(lv) ^ int(rv))
+        return right
+
     def execute_inc_dec(self, stmt: IncDecStmt):
         """Execute increment/decrement statement"""
         if isinstance(stmt.expr, Identifier):

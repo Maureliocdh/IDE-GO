@@ -73,6 +73,7 @@ class Parameter(ASTNode):
     """Function parameter: name Type"""
     name: str
     type_: Type
+    variadic: bool = False
 
 
 @dataclass
@@ -98,6 +99,7 @@ class StructField(ASTNode):
     name: str
     type_: Type
     tag: Optional[str] = None
+    embedded: bool = False
 
 
 @dataclass
