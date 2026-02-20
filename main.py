@@ -320,8 +320,15 @@ class SimuladorGo:
         frame_editor_tabs = tk.Frame(self.editor_paned, bg=self.bg_color)
         self.editor_paned.add(frame_editor_tabs, minsize=300)
 
-        # Notebook para las pestañas del editor  
-        self.editor_notebook = ttk.Notebook(frame_editor_tabs)
+        # Barra de pestañas personalizada con botones ×
+        self.tab_bar = tk.Frame(frame_editor_tabs, bg="#252526", height=35)
+        self.tab_bar.pack(side=tk.TOP, fill=tk.X)
+        self.tab_bar.pack_propagate(False)
+
+        # Notebook sin cabeceras nativas (las sustituimos por tab_bar)
+        style.layout('TabEditor.TNotebook', [('Notebook.client', {'sticky': 'nswe'})])
+        style.configure('TabEditor.TNotebook', background=self.bg_color, borderwidth=0)
+        self.editor_notebook = ttk.Notebook(frame_editor_tabs, style='TabEditor.TNotebook')
         self.editor_notebook.pack(fill=tk.BOTH, expand=True)
         
         # Lista de pestañas editoras
@@ -542,7 +549,10 @@ class SimuladorGo:
         
         # Agregar pestaña al notebook
         self.editor_notebook.add(nueva_tab.frame, text=nombre_tab)
-        
+
+        # Crear botón de pestaña en la barra personalizada
+        self._crear_boton_tab(nueva_tab, nombre_tab)
+
         # Insertar contenido si existe
         if contenido:
             nueva_tab.texto_codigo.insert("1.0", contenido)
@@ -550,7 +560,8 @@ class SimuladorGo:
         # Seleccionar la nueva pestaña
         self.editor_notebook.select(nueva_tab.frame)
         
-        # Actualizar
+        # Actualizar visual
+        self._actualizar_tab_visual()
         self.actualizar_titulo()
         self.actualizar_barra_estado_tab(nueva_tab)
         
@@ -558,48 +569,49 @@ class SimuladorGo:
     
     def cerrar_tab_actual(self):
         """Cierra la pestaña actual (Ctrl+W)"""
-        tab_actual = self.get_tab_actual()
-        if not tab_actual:
+        self.cerrar_tab(self.get_tab_actual())
+
+    def cerrar_tab(self, tab):
+        """Cierra la pestaña indicada (llamado por botón × o Ctrl+W)"""
+        if not tab:
             return
-        
-        # Si solo queda una pestaña, no cerrar (siempre debe haber al menos una)
+
+        # Si solo queda una pestaña: limpiar en lugar de cerrar
         if len(self.tabs_editoras) == 1:
-            # Preguntar si quiere crear nuevo archivo
-            if tab_actual.archivo_modificado:
+            if tab.archivo_modificado:
                 respuesta = messagebox.askyesnocancel("¿Guardar cambios?",
                                                       "¿Desea guardar los cambios antes de cerrar?")
-                if respuesta is None:  # Canceló
+                if respuesta is None:
                     return
-                elif respuesta:  # Sí
+                elif respuesta:
                     self.guardar()
-            
-            # Limpiar la pestaña en lugar de cerrarla
-            tab_actual.texto_codigo.delete("1.0", tk.END)
-            tab_actual.ruta_actual = None
-            tab_actual.archivo_modificado = False
-            self.actualizar_nombre_tab(tab_actual)
+            tab.texto_codigo.delete("1.0", tk.END)
+            tab.ruta_actual = None
+            tab.archivo_modificado = False
+            self.actualizar_nombre_tab(tab)
             self.actualizar_titulo()
             return
-        
-        # Hay múltiples pestañas, cerrar esta
-        if tab_actual.archivo_modificado:
+
+        # Hay múltiples pestañas — cerrar esta
+        if tab.archivo_modificado:
             respuesta = messagebox.askyesnocancel("¿Guardar cambios?",
-                                                  f"¿Desea guardar los cambios en {tab_actual.get_nombre_para_tab()}?")
-            if respuesta is None:  # Canceló
+                                                  f"¿Desea guardar los cambios en {tab.get_nombre_para_tab()}?")
+            if respuesta is None:
                 return
-            elif respuesta:  # Sí
+            elif respuesta:
                 self.guardar()
-        
-        # Obtener índice y eliminar
+
         try:
-            idx = self.tabs_editoras.index(tab_actual)
+            idx = self.tabs_editoras.index(tab)
             self.editor_notebook.forget(idx)
-            self.tabs_editoras.remove(tab_actual)
-            
-            # Actualizar
+            self.tabs_editoras.remove(tab)
+            # Destruir el botón de la barra de pestañas
+            if hasattr(tab, '_tab_btn_frame'):
+                tab._tab_btn_frame.destroy()
             self.actualizar_titulo()
             nueva_tab = self.get_tab_actual()
             if nueva_tab:
+                self._actualizar_tab_visual()
                 self.actualizar_barra_estado_tab(nueva_tab)
         except:
             pass
@@ -632,6 +644,7 @@ class SimuladorGo:
         """Evento cuando cambia la pestaña activa"""
         tab_actual = self.get_tab_actual()
         if tab_actual:
+            self._actualizar_tab_visual()
             self.actualizar_titulo()
             self.actualizar_barra_estado_tab(tab_actual)
             self.actualizar_panel_errores()  # Actualizar panel de errores al cambiar de tab
@@ -640,9 +653,71 @@ class SimuladorGo:
         """Actualiza el nombre mostrado en la pestaña"""
         try:
             idx = self.tabs_editoras.index(tab)
-            self.editor_notebook.tab(idx, text=tab.get_nombre_para_tab())
+            nombre = tab.get_nombre_para_tab()
+            self.editor_notebook.tab(idx, text=nombre)
+            # Actualizar también el botón de la barra personalizada
+            if hasattr(tab, '_tab_label'):
+                tab._tab_label.config(text=nombre)
         except:
             pass
+
+    # --- MÉTODOS DE BARRA DE PESTAÑAS PERSONALIZADA ---
+
+    def _crear_boton_tab(self, tab, nombre):
+        """Crea el botón visual de la pestaña en la barra personalizada"""
+        btn_frame = tk.Frame(self.tab_bar, bg="#2d2d2d", padx=0, pady=0)
+        btn_frame.pack(side=tk.LEFT, padx=(0, 1), pady=(0, 0))
+
+        lbl = tk.Button(btn_frame, text=nombre, bg="#2d2d2d", fg="#aaaaaa",
+                        border=0, padx=10, pady=6,
+                        activebackground="#3c3c3c", activeforeground="white",
+                        font=("Segoe UI", 10), cursor="arrow",
+                        command=lambda t=tab: self._seleccionar_tab(t))
+        lbl.pack(side=tk.LEFT)
+
+        close = tk.Button(btn_frame, text="✕", bg="#2d2d2d", fg="#666666",
+                          border=0, padx=5, pady=6,
+                          activebackground="#c42b1c", activeforeground="white",
+                          font=("Segoe UI", 9), cursor="hand2",
+                          command=lambda t=tab: self.cerrar_tab(t))
+        close.pack(side=tk.LEFT)
+
+        # Hover: resaltar cierre al pasar el ratón
+        def on_enter(e, f=btn_frame, l=lbl, c=close):
+            tab_actual = self.get_tab_actual()
+            bg = "#1e1e1e" if tab is tab_actual else "#3c3c3c"
+            f.config(bg=bg); l.config(bg=bg); c.config(bg=bg, fg="#cccccc")
+        def on_leave(e, t=tab):
+            self._actualizar_tab_visual()
+
+        for w in (btn_frame, lbl, close):
+            w.bind("<Enter>", on_enter)
+            w.bind("<Leave>", on_leave)
+
+        tab._tab_btn_frame = btn_frame
+        tab._tab_label = lbl
+        tab._tab_close = close
+
+    def _seleccionar_tab(self, tab):
+        """Selecciona la pestaña indicada y actualiza el visual"""
+        self.editor_notebook.select(tab.frame)
+        self._actualizar_tab_visual()
+        tab.texto_codigo.focus_set()
+
+    def _actualizar_tab_visual(self):
+        """Actualiza el aspecto activo/inactivo de todos los botones de pestaña"""
+        tab_actual = self.get_tab_actual()
+        for t in self.tabs_editoras:
+            if not hasattr(t, '_tab_btn_frame'):
+                continue
+            if t is tab_actual:
+                t._tab_btn_frame.config(bg="#1e1e1e")
+                t._tab_label.config(bg="#1e1e1e", fg="#ffffff")
+                t._tab_close.config(bg="#1e1e1e", fg="#888888")
+            else:
+                t._tab_btn_frame.config(bg="#2d2d2d")
+                t._tab_label.config(bg="#2d2d2d", fg="#aaaaaa")
+                t._tab_close.config(bg="#2d2d2d", fg="#555555")
 
     # --- MÉTODOS PARA PANEL DE ERRORES Y VALIDACIÓN EN TIEMPO REAL ---
     
@@ -2033,7 +2108,7 @@ Un IDE completo para programación en Go-like
   Ctrl+W - Cerrar pestaña
   Ctrl+0 - Resetear zoom
 
-© 2024 - Versión 1.0
+© 2026 - Versión 1.0
 """
         messagebox.showinfo("Acerca de", acerca_texto)
     
