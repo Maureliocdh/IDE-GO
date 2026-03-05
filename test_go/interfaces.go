@@ -53,3 +53,4 @@ func main() {
     detectCircle(r)
     detectCircle(c)
 }
+

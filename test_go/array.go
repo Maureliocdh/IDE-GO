@@ -2,7 +2,6 @@ package main
 import "fmt"
 
 func main() {
-
     var a [5]int
     fmt.Println("emp:", a)
 
@@ -35,4 +34,6 @@ func main() {
     }
     fmt.Println("2d: ", twoD)
 }
+
+
 
