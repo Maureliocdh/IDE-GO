@@ -65,7 +65,7 @@ class LineNumbers(tk.Canvas):
             if dline is None: break
             y = dline[1]
             linenum = str(i).split(".")[0]
-            self.create_text(2, y, anchor="nw", text=linenum, fill="#45475a", font=("Consolas", 11))
+            self.create_text(2, y, anchor="nw", text=linenum, fill="#888888", font=("Consolas", 11))
             i = self.text_widget.index("%s+1line" % i)
 
 # --- TOOLTIP ---
@@ -93,10 +93,10 @@ class Tooltip:
         self._tip_win.wm_geometry(f"+{x}+{y}")
         self._tip_win.attributes("-topmost", True)
         lbl = tk.Label(self._tip_win, text=self.text,
-                       bg="#313244", fg="#cdd6f4",
+                       bg="#ffffe0", fg="#000000",
                        font=("Segoe UI", 9),
-                       relief="flat", padx=8, pady=4,
-                       borderwidth=0)
+                       relief="solid", padx=8, pady=4,
+                       borderwidth=1)
         lbl.pack()
 
     def _hide(self, event=None):
@@ -162,13 +162,13 @@ class EditorTab:
                                        font=("Consolas", font_size), 
                                        bg=ide_instance.bg_color, 
                                        fg=ide_instance.fg_color,
-                                       insertbackground="#94e2d5", 
-                                       selectbackground="#313244",
+                                       insertbackground="#000000", 
+                                       selectbackground="#b3d7ff",
                                        yscrollcommand=self.scrollbar.set, 
                                        borderwidth=0)
         
         # Números de línea
-        self.linenumbers = LineNumbers(self.frame, width=40, bg="#13131d", highlightthickness=0)
+        self.linenumbers = LineNumbers(self.frame, width=40, bg="#e8e8e8", highlightthickness=0)
         self.linenumbers.attach(self.texto_codigo)
         self.linenumbers.pack(side="left", fill="y")
         
@@ -212,15 +212,15 @@ class EditorTab:
     
     def configurar_tags(self):
         """Configura los tags de resaltado de sintaxis"""
-        self.texto_codigo.tag_config("keyword",   foreground="#cba6f7")   # mauve
-        self.texto_codigo.tag_config("type",      foreground="#89b4fa")   # blue
-        self.texto_codigo.tag_config("string",    foreground="#fab387")   # peach
-        self.texto_codigo.tag_config("numeros",   foreground="#a6e3a1")   # green
-        self.texto_codigo.tag_config("comment",   foreground="#585b70")   # overlay1
-        self.texto_codigo.tag_config("caracteres",foreground="#f9e2af")   # yellow
+        self.texto_codigo.tag_config("keyword",   foreground="#ff7700")   # orange (IDLE)
+        self.texto_codigo.tag_config("type",      foreground="#900090")   # purple (IDLE builtins)
+        self.texto_codigo.tag_config("string",    foreground="#00aa00")   # green (IDLE)
+        self.texto_codigo.tag_config("numeros",   foreground="#000000")   # black
+        self.texto_codigo.tag_config("comment",   foreground="#dd0000")   # red (IDLE)
+        self.texto_codigo.tag_config("caracteres",foreground="#00aa00")   # green like strings
         # Tag para errores
-        self.texto_codigo.tag_config("error", underline=True, foreground="#f38ba8")
-        self.texto_codigo.tag_config("error_line", background="#2d1e2e")  # dark rose bg
+        self.texto_codigo.tag_config("error", underline=True, foreground="#ff0000")
+        self.texto_codigo.tag_config("error_line", background="#ffe0e0")  # light pink bg
         self.texto_codigo.tag_raise("error")  # Prioridad alta
     
     def get_nombre_para_tab(self):
@@ -246,13 +246,13 @@ class SimuladorPython:
         self.tema_actual = "oscuro"
         self.temas = {
             "oscuro": {
-                "bg":         "#1e1e2e",   # Catppuccin Mocha base
-                "fg":         "#cdd6f4",   # text
-                "bg_editor":  "#1e1e2e",
-                "fg_editor":  "#cdd6f4",
-                "bg_toolbar": "#181825",   # mantle
-                "bg_lineas":  "#161b22",   # sidebar
-                "select_bg":  "#313244",   # surface0
+                "bg":         "#ffffff",   # IDLE white editor
+                "fg":         "#000000",   # black text
+                "bg_editor":  "#ffffff",
+                "fg_editor":  "#000000",
+                "bg_toolbar": "#f0f0f0",   # light gray toolbar
+                "bg_lineas":  "#e8e8e8",   # line numbers bg
+                "select_bg":  "#b3d7ff",   # IDLE selection blue
             },
             "claro": {
                 "bg":         "#eff1f5",   # Catppuccin Latte base
@@ -273,30 +273,30 @@ class SimuladorPython:
         style.theme_use('clam')
 
         # Notebook editor (pestañas de archivo)
-        style.configure("TNotebook", background="#181825", borderwidth=0, tabmargins=[0,0,0,0])
-        style.configure("TNotebook.Tab", background="#252530", foreground="#6c7086",
+        style.configure("TNotebook", background="#e0e0e0", borderwidth=0, tabmargins=[0,0,0,0])
+        style.configure("TNotebook.Tab", background="#d0d0d0", foreground="#444444",
                         padding=[16, 7], font=("Segoe UI", 9))
         style.map("TNotebook.Tab",
-                  background=[("selected", "#1e1e2e")],
-                  foreground=[("selected", "#cba6f7")])
+                  background=[("selected", "#ffffff")],
+                  foreground=[("selected", "#000000")])
 
         # Notebook de salida (Output panel)
-        style.configure("Output.TNotebook", background="#181825", borderwidth=0, tabmargins=[0,0,0,0])
-        style.configure("Output.TNotebook.Tab", background="#1a1b26", foreground="#6c7086",
+        style.configure("Output.TNotebook", background="#e0e0e0", borderwidth=0, tabmargins=[0,0,0,0])
+        style.configure("Output.TNotebook.Tab", background="#d0d0d0", foreground="#444444",
                         padding=[14, 6], font=("Segoe UI", 9))
         style.map("Output.TNotebook.Tab",
-                  background=[("selected", "#1e1e2e")],
-                  foreground=[("selected", "#89b4fa")])
+                  background=[("selected", "#ffffff")],
+                  foreground=[("selected", "#0078d7")])
 
         # BARRA DE MENÚ SUPERIOR
-        menubar = tk.Menu(self.root, bg="#1e1e2e", fg="#cdd6f4",
-                          activebackground="#313244", activeforeground="#cba6f7",
+        menubar = tk.Menu(self.root, bg="#f0f0f0", fg="#000000",
+                          activebackground="#0078d7", activeforeground="#ffffff",
                           borderwidth=0, relief="flat")
         self.root.config(menu=menubar)
 
-        _mo = dict(tearoff=0, bg="#1e1e2e", fg="#cdd6f4",
-                   activebackground="#313244", activeforeground="#cba6f7",
-                   borderwidth=0, selectcolor="#cba6f7")
+        _mo = dict(tearoff=0, bg="#f0f0f0", fg="#000000",
+                   activebackground="#0078d7", activeforeground="#ffffff",
+                   borderwidth=0, selectcolor="#0078d7")
 
         # -> Menú Archivo
         archivo_menu = tk.Menu(menubar, **_mo)
@@ -364,15 +364,15 @@ class SimuladorPython:
         menubar.add_cascade(label="Ayuda", menu=ayuda_menu)
 
         # --- 1. BARRA DE HERRAMIENTAS ---
-        toolbar = tk.Frame(self.root, bg="#181825", padx=8, pady=5)
+        toolbar = tk.Frame(self.root, bg="#f0f0f0", padx=8, pady=5)
         toolbar.pack(side=tk.TOP, fill=tk.X)
 
-        self.crear_boton(toolbar, "📂", "Abrir archivo", self.abrir_archivo, "#313244")
-        self.crear_boton(toolbar, "💾", "Guardar  Ctrl+S", self.guardar, "#313244")
-        self.crear_boton(toolbar, "📋", "Guardar Como...", self.guardar_como, "#313244")
+        self.crear_boton(toolbar, "📂", "Abrir archivo", self.abrir_archivo, "#d0d0d0")
+        self.crear_boton(toolbar, "💾", "Guardar  Ctrl+S", self.guardar, "#d0d0d0")
+        self.crear_boton(toolbar, "📋", "Guardar Como...", self.guardar_como, "#d0d0d0")
 
         # Separador visual
-        tk.Frame(toolbar, width=1, bg="#45475a").pack(side=tk.LEFT, fill="y", padx=10, pady=4)
+        tk.Frame(toolbar, width=1, bg="#999999").pack(side=tk.LEFT, fill="y", padx=10, pady=4)
 
         self.crear_boton(toolbar, "🔢", "Ver Bytecode  F6", self.accion_compilar, "#007acc")
         self.crear_boton(toolbar, "📝", "Generar ASM  F7", self.accion_generar_asm, "#7c3aed")
@@ -384,16 +384,16 @@ class SimuladorPython:
         # --- 2. CONTENEDOR PRINCIPAL VERTICAL (estilo VS Code) ---
         # Divide la ventana en: zona superior (sidebar+editor) y panel inferior (output)
         self.main_paned = tk.PanedWindow(self.root, orient=tk.VERTICAL,
-                                         bg="#313244", sashwidth=5, sashrelief="flat")
+                                         bg="#cccccc", sashwidth=5, sashrelief="flat")
         self.main_paned.pack(fill=tk.BOTH, expand=True)
 
         # --- 2a. ZONA SUPERIOR: sidebar + editor (horizontal) ---
         self.paned_window = tk.PanedWindow(self.main_paned, orient=tk.HORIZONTAL,
-                                           bg="#313244", sashwidth=5, sashrelief="flat")
+                                           bg="#cccccc", sashwidth=5, sashrelief="flat")
         self.main_paned.add(self.paned_window, minsize=350)
 
         # --- 2.1. EXPLORADOR DE ARCHIVOS (SIDEBAR IZQUIERDO) ---
-        self.panel_explorador = tk.Frame(self.paned_window, bg="#1e1e2e", width=250)
+        self.panel_explorador = tk.Frame(self.paned_window, bg="#f5f5f5", width=250)
         self.paned_window.add(self.panel_explorador, minsize=180)
         self.crear_explorador_archivos()
 
@@ -406,7 +406,7 @@ class SimuladorPython:
 
         # PanedWindow vertical para dividir editor y panel de errores
         self.editor_paned = tk.PanedWindow(self.editor_frame, orient=tk.VERTICAL,
-                                           bg="#313244", sashwidth=4, sashrelief="flat")
+                                           bg="#cccccc", sashwidth=4, sashrelief="flat")
         self.editor_paned.pack(fill=tk.BOTH, expand=True)
 
         # Frame superior para el editor con tabs
@@ -414,7 +414,7 @@ class SimuladorPython:
         self.editor_paned.add(frame_editor_tabs, minsize=200)
 
         # Barra de pestañas personalizada
-        self.tab_bar = tk.Frame(frame_editor_tabs, bg="#181825", height=36)
+        self.tab_bar = tk.Frame(frame_editor_tabs, bg="#e0e0e0", height=36)
         self.tab_bar.pack(side=tk.TOP, fill=tk.X)
         self.tab_bar.pack_propagate(False)
 
@@ -564,79 +564,79 @@ class SimuladorPython:
         self.root.bind('<Control-Shift-Tab>', lambda e: self.anterior_tab())
 
         # --- 4. PANEL DE SALIDA INFERIOR (estilo VS Code) ---
-        self._frame_output = tk.Frame(self.main_paned, bg="#181825")
+        self._frame_output = tk.Frame(self.main_paned, bg="#f0f0f0")
         self.main_paned.add(self._frame_output, minsize=28)
 
         # Barra de títulos del panel (siempre visible, aunque el contenido esté oculto)
-        panel_header = tk.Frame(self._frame_output, bg="#181825", height=28)
+        panel_header = tk.Frame(self._frame_output, bg="#f0f0f0", height=28)
         panel_header.pack(side=tk.TOP, fill=tk.X)
         panel_header.pack_propagate(False)
-        tk.Frame(self._frame_output, bg="#313244", height=1).pack(side=tk.TOP, fill=tk.X)
+        tk.Frame(self._frame_output, bg="#cccccc", height=1).pack(side=tk.TOP, fill=tk.X)
 
         # Notebook de salida
         self.notebook = ttk.Notebook(self._frame_output, style="Output.TNotebook")
         self.notebook.pack(fill=tk.BOTH, expand=True)
 
-        self.tab_consola = tk.Frame(self.notebook, bg="#181825")
-        self.consola = scrolledtext.ScrolledText(self.tab_consola, bg="#13131d", fg="#cdd6f4",
-                                                  font=("Consolas", 11), insertbackground="#94e2d5",
-                                                  selectbackground="#313244", borderwidth=0)
+        self.tab_consola = tk.Frame(self.notebook, bg="#f0f0f0")
+        self.consola = scrolledtext.ScrolledText(self.tab_consola, bg="#ffffff", fg="#000000",
+                                                  font=("Consolas", 11), insertbackground="#000000",
+                                                  selectbackground="#b3d7ff", borderwidth=0)
         self.consola.pack(fill=tk.BOTH, expand=True)
         self.notebook.add(self.tab_consola, text="  📟  Consola  ")
 
-        self.tab_c = tk.Frame(self.notebook, bg="#181825")
-        self.output_c = scrolledtext.ScrolledText(self.tab_c, bg="#13131d", fg="#89b4fa",
+        self.tab_c = tk.Frame(self.notebook, bg="#f0f0f0")
+        self.output_c = scrolledtext.ScrolledText(self.tab_c, bg="#ffffff", fg="#000088",
                                                    font=("Consolas", 11), borderwidth=0)
         self.output_c.pack(fill=tk.BOTH, expand=True)
         self.notebook.add(self.tab_c, text="  🔢  Bytecode  ")
 
-        self.tab_tokens = tk.Frame(self.notebook, bg="#181825")
-        self.texto_tokens = scrolledtext.ScrolledText(self.tab_tokens, bg="#13131d", fg="#a6e3a1",
+        self.tab_tokens = tk.Frame(self.notebook, bg="#f0f0f0")
+        self.texto_tokens = scrolledtext.ScrolledText(self.tab_tokens, bg="#ffffff", fg="#006600",
                                                        font=("Consolas", 10), borderwidth=0)
         self.texto_tokens.pack(fill=tk.BOTH, expand=True)
         self.notebook.add(self.tab_tokens, text="  🔍  Léxico  ")
 
-        self.tab_asm = tk.Frame(self.notebook, bg="#181825")
-        self.output_asm = scrolledtext.ScrolledText(self.tab_asm, bg="#13131d", fg="#cba6f7",
+        self.tab_asm = tk.Frame(self.notebook, bg="#f0f0f0")
+        self.output_asm = scrolledtext.ScrolledText(self.tab_asm, bg="#ffffff", fg="#660066",
                                                      font=("Consolas", 11), borderwidth=0)
         self.output_asm.pack(fill=tk.BOTH, expand=True)
         self.notebook.add(self.tab_asm, text="  📝  ASM  ")
 
-        self.tab_tac = tk.Frame(self.notebook, bg="#181825")
-        self.output_tac = scrolledtext.ScrolledText(self.tab_tac, bg="#13131d", fg="#74c7ec",
+        self.tab_tac = tk.Frame(self.notebook, bg="#f0f0f0")
+        self.output_tac = scrolledtext.ScrolledText(self.tab_tac, bg="#ffffff", fg="#005577",
                                                      font=("Consolas", 11), borderwidth=0)
         self.output_tac.pack(fill=tk.BOTH, expand=True)
         self.notebook.add(self.tab_tac, text="  🔧  Intermedio  ")
 
         # Pestaña de Problemas (errores)
-        self.tab_problemas = tk.Frame(self.notebook, bg="#181825")
+        self.tab_problemas = tk.Frame(self.notebook, bg="#f0f0f0")
         self.notebook.add(self.tab_problemas, text="  ⚠  Problemas  ")
         self.crear_panel_errores()
 
         # --- 5. BARRA DE ESTADO ---
-        self.barra_estado = tk.Frame(self.root, bg="#181825", height=24)
+        self.barra_estado = tk.Frame(self.root, bg="#e0e0e0", height=24)
         self.barra_estado.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # Segmento de lenguaje (acento púrpura)
-        _seg_lang = tk.Frame(self.barra_estado, bg="#cba6f7")
+        # Segmento de lenguaje (acento azul estilo Windows)
+        _seg_lang = tk.Frame(self.barra_estado, bg="#0078d7")
         _seg_lang.pack(side=tk.LEFT, fill=tk.Y)
-        self.label_tipo_archivo = tk.Label(_seg_lang, text=" ⬡  Python ", bg="#cba6f7", fg="#1e1e2e",
+        self.label_tipo_archivo = tk.Label(_seg_lang, text=" ⬡  Python ", bg="#0078d7", fg="#ffffff",
                                             font=("Segoe UI", 9, "bold"))
         self.label_tipo_archivo.pack(side=tk.LEFT, padx=2)
 
-        self.label_linea_col = tk.Label(self.barra_estado, text="  Ln 1, Col 0", bg="#181825", fg="#a6adc8",
+        self.label_linea_col = tk.Label(self.barra_estado, text="  Ln 1, Col 0", bg="#e0e0e0", fg="#333333",
                                          font=("Segoe UI", 9), padx=4)
         self.label_linea_col.pack(side=tk.LEFT)
 
-        self.label_total_lineas = tk.Label(self.barra_estado, text="| 1 línea", bg="#181825", fg="#585b70",
+        self.label_total_lineas = tk.Label(self.barra_estado, text="| 1 línea", bg="#e0e0e0", fg="#666666",
                                             font=("Segoe UI", 9), padx=2)
         self.label_total_lineas.pack(side=tk.LEFT)
 
-        self.label_encoding = tk.Label(self.barra_estado, text="UTF-8", bg="#181825", fg="#6c7086",
+        self.label_encoding = tk.Label(self.barra_estado, text="UTF-8", bg="#e0e0e0", fg="#666666",
                                         font=("Segoe UI", 9), padx=12)
         self.label_encoding.pack(side=tk.RIGHT)
 
-        self.label_zoom = tk.Label(self.barra_estado, text="100%", bg="#181825", fg="#a6adc8",
+        self.label_zoom = tk.Label(self.barra_estado, text="100%", bg="#e0e0e0", fg="#333333",
                                     font=("Segoe UI", 9), padx=10)
         self.label_zoom.pack(side=tk.RIGHT)
 
@@ -644,12 +644,12 @@ class SimuladorPython:
         self._panel_output_visible = True
         self._btn_toggle_panel = tk.Label(
             self.barra_estado, text="▽  Panel",
-            bg="#181825", fg="#6c7086",
+            bg="#e0e0e0", fg="#666666",
             font=("Segoe UI", 8), padx=10, cursor="hand2")
         self._btn_toggle_panel.pack(side=tk.RIGHT)
         self._btn_toggle_panel.bind("<Button-1>", lambda e: self.toggle_output_panel())
-        self._btn_toggle_panel.bind("<Enter>", lambda e: self._btn_toggle_panel.config(fg="#a6adc8"))
-        self._btn_toggle_panel.bind("<Leave>", lambda e: self._btn_toggle_panel.config(fg="#6c7086"))
+        self._btn_toggle_panel.bind("<Enter>", lambda e: self._btn_toggle_panel.config(fg="#000000"))
+        self._btn_toggle_panel.bind("<Leave>", lambda e: self._btn_toggle_panel.config(fg="#666666"))
         Tooltip(self._btn_toggle_panel, "Mostrar/ocultar panel inferior  Ctrl+J")
         self.root.bind('<Control-j>', lambda e: self.toggle_output_panel())
         self.root.bind('<Control-J>', lambda e: self.toggle_output_panel())
@@ -803,19 +803,19 @@ class SimuladorPython:
 
     def _crear_boton_tab(self, tab, nombre):
         """Crea el botón visual de la pestaña en la barra personalizada"""
-        btn_frame = tk.Frame(self.tab_bar, bg="#181825", padx=0, pady=0)
+        btn_frame = tk.Frame(self.tab_bar, bg="#e0e0e0", padx=0, pady=0)
         btn_frame.pack(side=tk.LEFT, padx=(0, 1), pady=(0, 0))
 
-        lbl = tk.Button(btn_frame, text=nombre, bg="#181825", fg="#585b70",
+        lbl = tk.Button(btn_frame, text=nombre, bg="#e0e0e0", fg="#555555",
                         border=0, padx=12, pady=7,
-                        activebackground="#252530", activeforeground="#cba6f7",
+                        activebackground="#cccccc", activeforeground="#000000",
                         font=("Segoe UI", 9), cursor="hand2",
                         command=lambda t=tab: self._seleccionar_tab(t))
         lbl.pack(side=tk.LEFT)
 
-        close = tk.Button(btn_frame, text="×", bg="#181825", fg="#45475a",
+        close = tk.Button(btn_frame, text="×", bg="#e0e0e0", fg="#888888",
                           border=0, padx=5, pady=7,
-                          activebackground="#c42b1c", activeforeground="white",
+                          activebackground="#cc0000", activeforeground="white",
                           font=("Segoe UI", 10), cursor="hand2",
                           command=lambda t=tab: self.cerrar_tab(t))
         close.pack(side=tk.LEFT)
@@ -823,8 +823,8 @@ class SimuladorPython:
         # Hover
         def on_enter(e, f=btn_frame, l=lbl, c=close):
             tab_actual = self.get_tab_actual()
-            bg = "#1e1e2e" if tab is tab_actual else "#25253a"
-            f.config(bg=bg); l.config(bg=bg); c.config(bg=bg, fg="#a6adc8")
+            bg = "#ffffff" if tab is tab_actual else "#d0d0d0"
+            f.config(bg=bg); l.config(bg=bg); c.config(bg=bg, fg="#555555")
         def on_leave(e, t=tab):
             self._actualizar_tab_visual()
 
@@ -849,16 +849,16 @@ class SimuladorPython:
             if not hasattr(t, '_tab_btn_frame'):
                 continue
             if t is tab_actual:
-                t._tab_btn_frame.config(bg="#1e1e2e",
-                                        highlightbackground="#cba6f7", highlightthickness=1)
-                t._tab_label.config(bg="#1e1e2e", fg="#cba6f7",
+                t._tab_btn_frame.config(bg="#ffffff",
+                                        highlightbackground="#0078d7", highlightthickness=1)
+                t._tab_label.config(bg="#ffffff", fg="#0078d7",
                                     font=("Segoe UI", 9, "bold"))
-                t._tab_close.config(bg="#1e1e2e", fg="#6c7086")
+                t._tab_close.config(bg="#ffffff", fg="#666666")
             else:
-                t._tab_btn_frame.config(bg="#181825", highlightthickness=0)
-                t._tab_label.config(bg="#181825", fg="#585b70",
+                t._tab_btn_frame.config(bg="#e0e0e0", highlightthickness=0)
+                t._tab_label.config(bg="#e0e0e0", fg="#555555",
                                     font=("Segoe UI", 9))
-                t._tab_close.config(bg="#181825", fg="#313244")
+                t._tab_close.config(bg="#e0e0e0", fg="#999999")
 
     # --- MÉTODOS PARA PANEL DE ERRORES Y VALIDACIÓN EN TIEMPO REAL ---
     
@@ -868,12 +868,12 @@ class SimuladorPython:
         scrollbar_errores = tk.Scrollbar(self.tab_problemas, orient="vertical")
         scrollbar_errores.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.canvas_errores = tk.Canvas(self.tab_problemas, bg="#13131d", highlightthickness=0,
+        self.canvas_errores = tk.Canvas(self.tab_problemas, bg="#ffffff", highlightthickness=0,
                                         yscrollcommand=scrollbar_errores.set)
         self.canvas_errores.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar_errores.config(command=self.canvas_errores.yview)
 
-        self.frame_lista_errores = tk.Frame(self.canvas_errores, bg="#13131d")
+        self.frame_lista_errores = tk.Frame(self.canvas_errores, bg="#ffffff")
         self.canvas_errores.create_window((0, 0), window=self.frame_lista_errores, anchor="nw")
         self.frame_lista_errores.bind(
             "<Configure>",
@@ -1000,21 +1000,21 @@ class SimuladorPython:
     def crear_item_error(self, index, error, tab):
         """Crea un ítem de error en una sola línea horizontal (estilo VS Code)."""
         tipo_color = {
-            'Sintaxis':    '#f38ba8',
-            'Léxico':      '#fab387',
-            'Indentación': '#f9e2af',
-            'Parser':      '#f38ba8'
+            'Sintaxis':    '#cc0000',
+            'Léxico':      '#cc6600',
+            'Indentación': '#886600',
+            'Parser':      '#cc0000'
         }
-        color = tipo_color.get(error['tipo'], '#f38ba8')
+        color = tipo_color.get(error['tipo'], '#cc0000')
 
         # Fondo alternado par/impar
-        bg_row = "#181825" if index % 2 == 0 else "#13131d"
+        bg_row = "#f8f8f8" if index % 2 == 0 else "#efefef"
 
         row = tk.Frame(self.frame_lista_errores, bg=bg_row, cursor="hand2")
         row.pack(fill=tk.X, pady=0)
 
         # Nro de orden
-        num_lbl = tk.Label(row, text=f" {index + 1} ", bg=bg_row, fg="#45475a",
+        num_lbl = tk.Label(row, text=f" {index + 1} ", bg=bg_row, fg="#999999",
                            font=("Consolas", 9), width=3, anchor="e")
         num_lbl.pack(side=tk.LEFT)
 
@@ -1030,22 +1030,22 @@ class SimuladorPython:
 
         # Número de línea clickeable
         linea = error['linea']
-        linea_lbl = tk.Label(row, text=f"L.{linea}", bg=bg_row, fg="#6c7086",
+        linea_lbl = tk.Label(row, text=f"L.{linea}", bg=bg_row, fg="#666666",
                              font=("Consolas", 9), padx=6, cursor="hand2")
         linea_lbl.pack(side=tk.LEFT)
 
         # Separador
-        tk.Label(row, text="│", bg=bg_row, fg="#313244",
+        tk.Label(row, text="│", bg=bg_row, fg="#cccccc",
                  font=("Consolas", 9)).pack(side=tk.LEFT)
 
         # Mensaje (rellena el resto)
-        msg_lbl = tk.Label(row, text=error['mensaje'], bg=bg_row, fg="#a6adc8",
+        msg_lbl = tk.Label(row, text=error['mensaje'], bg=bg_row, fg="#333333",
                            font=("Consolas", 9), anchor="w", padx=6)
         msg_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # Hover + click en todos los widgets
         all_widgets = [row, num_lbl, ic_lbl, tipo_lbl, linea_lbl, msg_lbl]
-        bg_hover = "#252530"
+        bg_hover = "#dde8ff"
         for w in all_widgets:
             w.bind("<Button-1>", lambda e, l=linea: self.ir_a_linea_error(l))
             w.bind("<Enter>", lambda e, r=row, ws=all_widgets, bh=bg_hover:
@@ -1070,7 +1070,7 @@ class SimuladorPython:
             # Resaltar temporalmente la línea
             tab_actual.texto_codigo.tag_remove("highlight", "1.0", tk.END)
             tab_actual.texto_codigo.tag_add("highlight", f"{linea}.0", f"{linea}.end")
-            tab_actual.texto_codigo.tag_config("highlight", background="#4a4a00")
+            tab_actual.texto_codigo.tag_config("highlight", background="#ffe0b3")
             
             # Quitar resaltado después de 1.5 segundos
             self.root.after(1500, lambda: tab_actual.texto_codigo.tag_remove("highlight", "1.0", tk.END))
@@ -1082,29 +1082,29 @@ class SimuladorPython:
     def crear_explorador_archivos(self):
         """Crea el panel del explorador de archivos (sidebar)"""
         # Header
-        header_explorador = tk.Frame(self.panel_explorador, bg="#181825", height=36)
+        header_explorador = tk.Frame(self.panel_explorador, bg="#e8e8e8", height=36)
         header_explorador.pack(side=tk.TOP, fill=tk.X)
         header_explorador.pack_propagate(False)
 
-        tk.Label(header_explorador, text="  EXPLORADOR", bg="#181825", fg="#6c7086",
+        tk.Label(header_explorador, text="  EXPLORADOR", bg="#e8e8e8", fg="#444444",
                  font=("Segoe UI", 9, "bold"), padx=6, anchor="w").pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Botón para abrir carpeta
         btn_abrir_carpeta = tk.Button(header_explorador, text="📂", command=self.abrir_carpeta_proyecto,
-                                       bg="#181825", fg="#a6adc8", relief="flat", font=("Segoe UI", 11),
+                                       bg="#e8e8e8", fg="#333333", relief="flat", font=("Segoe UI", 11),
                                        cursor="hand2", borderwidth=0,
-                                       activebackground="#313244", activeforeground="#cba6f7")
+                                       activebackground="#cccccc", activeforeground="#000000")
         btn_abrir_carpeta.pack(side=tk.RIGHT, padx=5)
 
         # Botón para refrescar
         btn_refrescar = tk.Button(header_explorador, text="🔄", command=self.refrescar_explorador,
-                                   bg="#181825", fg="#a6adc8", relief="flat", font=("Segoe UI", 11),
+                                   bg="#e8e8e8", fg="#333333", relief="flat", font=("Segoe UI", 11),
                                    cursor="hand2", borderwidth=0,
-                                   activebackground="#313244", activeforeground="#cba6f7")
+                                   activebackground="#cccccc", activeforeground="#000000")
         btn_refrescar.pack(side=tk.RIGHT, padx=2)
 
         # Frame para el árbol de archivos
-        tree_frame = tk.Frame(self.panel_explorador, bg="#1e1e2e")
+        tree_frame = tk.Frame(self.panel_explorador, bg="#ffffff")
         tree_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=0, pady=0)
         
         # Scrollbars
@@ -1116,12 +1116,12 @@ class SimuladorPython:
         
         # Treeview para estructura de archivos
         style = ttk.Style()
-        style.configure("Treeview", background="#1e1e2e", foreground="#cdd6f4",
-                       fieldbackground="#1e1e2e", borderwidth=0, rowheight=22)
-        style.configure("Treeview.Heading", background="#181825", foreground="#6c7086",
+        style.configure("Treeview", background="#ffffff", foreground="#000000",
+                       fieldbackground="#ffffff", borderwidth=0, rowheight=22)
+        style.configure("Treeview.Heading", background="#e8e8e8", foreground="#444444",
                        relief="flat", font=("Segoe UI", 9))
-        style.map("Treeview", background=[("selected", "#313244")],
-                  foreground=[("selected", "#cba6f7")])
+        style.map("Treeview", background=[("selected", "#b3d7ff")],
+                  foreground=[("selected", "#000000")])
         
         self.tree_archivos = ttk.Treeview(tree_frame, yscrollcommand=scrollbar_y.set,
                                           xscrollcommand=scrollbar_x.set, selectmode="browse")
@@ -1991,23 +1991,23 @@ class SimuladorPython:
     def crear_terminal(self):
         """Crea el widget de terminal integrado"""
         # Frame para terminal
-        self.terminal_frame = tk.Frame(self.editor_frame, bg="#181825", height=200)
+        self.terminal_frame = tk.Frame(self.editor_frame, bg="#f0f0f0", height=200)
         self.terminal_frame.pack(side=tk.BOTTOM, fill=tk.BOTH)
 
         # Label de título
         titulo_term = tk.Label(self.terminal_frame, text="  TERMINAL",
-                              bg="#313244", fg="#a6adc8",
+                              bg="#e0e0e0", fg="#333333",
                               font=("Segoe UI", 9, "bold"),
                               anchor="w", padx=10)
         titulo_term.pack(fill=tk.X)
 
         # Frame para entrada y botones
-        frame_controles = tk.Frame(self.terminal_frame, bg="#181825")
+        frame_controles = tk.Frame(self.terminal_frame, bg="#f0f0f0")
         frame_controles.pack(fill=tk.X, pady=2)
 
         # Entry para comandos
-        self.terminal_input = tk.Entry(frame_controles, bg="#252530", fg="#cdd6f4",
-                                       font=("Consolas", 10), insertbackground="#94e2d5",
+        self.terminal_input = tk.Entry(frame_controles, bg="#ffffff", fg="#000000",
+                                       font=("Consolas", 10), insertbackground="#000000",
                                        relief="flat", bd=4)
         self.terminal_input.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=2)
         self.terminal_input.bind('<Return>', lambda e: self.ejecutar_comando_terminal())
@@ -2031,11 +2031,11 @@ class SimuladorPython:
         scroll_term.pack(side=tk.RIGHT, fill=tk.Y)
 
         self.terminal_text = tk.Text(self.terminal_frame,
-                                     bg="#13131d", fg="#cdd6f4",
+                                     bg="#ffffff", fg="#000000",
                                      font=("Consolas", 10),
                                      yscrollcommand=scroll_term.set,
                                      wrap=tk.WORD, height=10,
-                                     insertbackground="#94e2d5")
+                                     insertbackground="#000000")
         self.terminal_text.pack(fill=tk.BOTH, expand=True)
         scroll_term.config(command=self.terminal_text.yview)
 
@@ -2052,7 +2052,7 @@ class SimuladorPython:
         
         self.terminal_text.config(state=tk.NORMAL)
         self.terminal_text.insert("end", f"\n$ {comando}\n", "comando")
-        self.terminal_text.tag_config("comando", foreground="#569cd6")
+        self.terminal_text.tag_config("comando", foreground="#0078d7")
         
         try:
             import subprocess
@@ -2771,7 +2771,7 @@ Un IDE completo para programación en Python
         ventana_buscar = tk.Toplevel(self.root)
         ventana_buscar.title("Buscar y Reemplazar")
         ventana_buscar.geometry("420x175")
-        ventana_buscar.configure(bg="#1e1e2e")
+        ventana_buscar.configure(bg="#f0f0f0")
         ventana_buscar.transient(self.root)
         ventana_buscar.resizable(False, False)
 
@@ -2779,17 +2779,17 @@ Un IDE completo para programación en Python
         ventana_buscar.columnconfigure(1, weight=1)
 
         # --- INTERFAZ ---
-        tk.Label(ventana_buscar, text="🔍  Buscar:", bg="#1e1e2e", fg="#a6adc8", font=("Segoe UI", 10)).grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        tk.Label(ventana_buscar, text="🔍  Buscar:", bg="#f0f0f0", fg="#333333", font=("Segoe UI", 10)).grid(row=0, column=0, padx=10, pady=10, sticky="w")
         
-        entry_buscar = tk.Entry(ventana_buscar, bg="#313244", fg="#cdd6f4", insertbackground="#cdd6f4",
+        entry_buscar = tk.Entry(ventana_buscar, bg="#ffffff", fg="#000000", insertbackground="#000000",
                                 font=("Consolas", 10), relief="flat", bd=4)
         entry_buscar.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
         entry_buscar.focus_set()
         entry_buscar.bind("<KeyRelease>", lambda e: buscar())
 
-        tk.Label(ventana_buscar, text="✏️  Reemplazar con:", bg="#1e1e2e", fg="#a6adc8", font=("Segoe UI", 10)).grid(row=1, column=0, padx=10, pady=5, sticky="w")
+        tk.Label(ventana_buscar, text="✏️  Reemplazar con:", bg="#f0f0f0", fg="#333333", font=("Segoe UI", 10)).grid(row=1, column=0, padx=10, pady=5, sticky="w")
         
-        entry_remplazar = tk.Entry(ventana_buscar, bg="#313244", fg="#cdd6f4", insertbackground="#cdd6f4",
+        entry_remplazar = tk.Entry(ventana_buscar, bg="#ffffff", fg="#000000", insertbackground="#000000",
                                    font=("Consolas", 10), relief="flat", bd=4)
         entry_remplazar.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
 
@@ -2835,7 +2835,7 @@ Un IDE completo para programación en Python
                 messagebox.showwarning("Aviso", f"No se encontró '{query}' para reemplazar.")
 
         # --- BOTONES ---
-        frame_botones = tk.Frame(ventana_buscar, bg="#1e1e2e")
+        frame_botones = tk.Frame(ventana_buscar, bg="#f0f0f0")
         frame_botones.grid(row=2, column=0, columnspan=2, pady=10)
 
         btn_buscar = tk.Button(frame_botones, text="Buscar", command=buscar, bg="#007acc", fg="white",
@@ -2897,15 +2897,15 @@ Un IDE completo para programación en Python
         ventana = tk.Toplevel(self.root)
         ventana.title("Ir a línea")
         ventana.geometry("300x110")
-        ventana.configure(bg="#1e1e2e")
+        ventana.configure(bg="#f0f0f0")
         ventana.transient(self.root)
         ventana.resizable(False, False)
         
-        tk.Label(ventana, text="Número de línea:", bg="#1e1e2e", fg="#a6adc8", 
+        tk.Label(ventana, text="Número de línea:", bg="#f0f0f0", fg="#333333", 
                 font=("Segoe UI", 10)).pack(pady=10)
         
-        entry = tk.Entry(ventana, font=("Consolas", 11), width=20, bg="#313244",
-                         fg="#cdd6f4", insertbackground="#cdd6f4", relief="flat", bd=4)
+        entry = tk.Entry(ventana, font=("Consolas", 11), width=20, bg="#ffffff",
+                         fg="#000000", insertbackground="#000000", relief="flat", bd=4)
         entry.pack(pady=5)
         entry.focus_set()
         
@@ -2922,7 +2922,7 @@ Un IDE completo para programación en Python
                     # Resaltar la línea temporalmente
                     tab_actual.texto_codigo.tag_remove("goto_highlight", "1.0", tk.END)
                     tab_actual.texto_codigo.tag_add("goto_highlight", f"{linea}.0", f"{linea}.end")
-                    tab_actual.texto_codigo.tag_config("goto_highlight", background="#264f78")
+                    tab_actual.texto_codigo.tag_config("goto_highlight", background="#b3d7ff")
                     
                     # Quitar resaltado después de 1 segundo
                     self.root.after(1000, lambda: tab_actual.texto_codigo.tag_remove("goto_highlight", "1.0", tk.END))
