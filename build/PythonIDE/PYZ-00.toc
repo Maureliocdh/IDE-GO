@@ -1,4 +1,4 @@
-('C:\\Users\\maure\\Desktop\\gi\\build\\MiApp\\PYZ-00.pyz',
+('C:\\Users\\maure\\Desktop\\gi\\build\\PythonIDE\\PYZ-00.pyz',
  [('_compat_pickle',
    'C:\\Users\\maure\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\_compat_pickle.py',
    'PYMODULE'),
@@ -29,7 +29,6 @@
   ('ast',
    'C:\\Users\\maure\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\ast.py',
    'PYMODULE'),
-  ('ast_nodes', 'C:\\Users\\maure\\Desktop\\gi\\ast_nodes.py', 'PYMODULE'),
   ('base64',
    'C:\\Users\\maure\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\base64.py',
    'PYMODULE'),
