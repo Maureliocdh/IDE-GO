@@ -13,6 +13,7 @@ from parser import Parser
 from compiler import Compiler
 from lexer import Lexer
 from assembly_generator import AssemblyGenerator
+from c_generator import CGenerator
 from indentation_checker import IndentationChecker, check_indentation
 
 # --- CLASE TEXTO PERSONALIZADO (PROXY) ---
@@ -349,8 +350,11 @@ class SimuladorPython:
         terminal_menu.add_command(label="Ejecutar Código", command=self.accion_ejecutar, accelerator="F5")
         terminal_menu.add_command(label="Ver Bytecode", command=self.accion_compilar, accelerator="F6")
         terminal_menu.add_command(label="Generar Ensamblador", command=self.accion_generar_asm, accelerator="F7")
+        terminal_menu.add_command(label="Generar Código C", command=self.accion_generar_c, accelerator="F9")
+        terminal_menu.add_command(label="Compilar y Ejecutar C (gcc)", command=self.accion_compilar_c_con_gcc)
         terminal_menu.add_separator()
         terminal_menu.add_command(label="Guardar Ensamblador (.asm)", command=self.guardar_asm)
+        terminal_menu.add_command(label="Guardar Código C (.c)", command=self.guardar_c)
         menubar.add_cascade(label="Ejecutar", menu=terminal_menu)
 
         # -> Menú Herramientas
@@ -376,6 +380,7 @@ class SimuladorPython:
 
         self.crear_boton(toolbar, "🔢", "Ver Bytecode  F6", self.accion_compilar, "#007acc")
         self.crear_boton(toolbar, "📝", "Generar ASM  F7", self.accion_generar_asm, "#7c3aed")
+        self.crear_boton(toolbar, "C", "Generar Código C  F9", self.accion_generar_c, "#b35c00")
         self.crear_boton(toolbar, "▶", "Ejecutar  F5", self.accion_ejecutar, "#16a34a")
 
         self.crear_boton(toolbar, "✕", "Salir", self.cerrar, "#b91c1c", side=tk.RIGHT)
@@ -556,6 +561,7 @@ class SimuladorPython:
         # Bindings para utilidades adicionales
         self.root.bind('<Control-Key-0>', lambda e: self.resetear_zoom())
         self.root.bind('<F8>', lambda e: self.toggle_terminal())
+        self.root.bind('<F9>', lambda e: self.accion_generar_c())
         
         # NUEVOS: Bindings para pestañas
         self.root.bind('<Control-w>', lambda e: self.cerrar_tab_actual())
@@ -607,6 +613,13 @@ class SimuladorPython:
                                                      font=("Consolas", 11), borderwidth=0)
         self.output_tac.pack(fill=tk.BOTH, expand=True)
         self.notebook.add(self.tab_tac, text="  🔧  Intermedio  ")
+
+        # Pestaña de Código C generado
+        self.tab_c_code = tk.Frame(self.notebook, bg="#f0f0f0")
+        self.output_c_code = scrolledtext.ScrolledText(self.tab_c_code, bg="#ffffff", fg="#004400",
+                                                         font=("Consolas", 11), borderwidth=0)
+        self.output_c_code.pack(fill=tk.BOTH, expand=True)
+        self.notebook.add(self.tab_c_code, text="  C  Código C  ")
 
         # Pestaña de Problemas (errores)
         self.tab_problemas = tk.Frame(self.notebook, bg="#f0f0f0")
@@ -2637,6 +2650,126 @@ Un IDE completo para programación en Python
             self.output_asm.insert(tk.END, f"Error al generar AST/bytecode: {e}\n")
             self.consola.insert(tk.END, f"Error: {e}\n")
 
+    def accion_generar_c(self, event=None):
+        """Transpila el código Python actual a C y lo muestra en la pestaña C Code (F9)"""
+        lista_tokens = self.procesar_tokens()
+        if not lista_tokens:
+            return
+        codigo = self.obtener_codigo()
+        try:
+            gen = CGenerator(source=codigo)
+            c_code = gen.generate()
+            self.output_c_code.delete("1.0", tk.END)
+            self.output_c_code.insert(tk.END, c_code)
+            self.notebook.select(self.tab_c_code)
+            self.consola.insert(tk.END, "✅ Código C generado correctamente.\n")
+            self.consola.insert(tk.END, ">> Use 'Guardar Código C' para exportar el .c\n")
+            self.consola.insert(tk.END, ">> Use 'Compilar y Ejecutar C' para probar con gcc\n")
+        except Exception as e:
+            self.output_c_code.delete("1.0", tk.END)
+            self.output_c_code.insert(tk.END, f"// Error al generar C: {e}\n")
+            self.consola.insert(tk.END, f"❌ Error al generar C: {e}\n")
+
+    def accion_compilar_c_con_gcc(self):
+        """Guarda el C generado en temp, lo compila con gcc y ejecuta el binario."""
+        import tempfile, subprocess, shutil, os as _os
+        c_code = self.output_c_code.get("1.0", tk.END).strip()
+        if not c_code or c_code.startswith("// No hay"):
+            messagebox.showwarning("Aviso", "Primero genera el código C (F9)")
+            return
+
+        if not shutil.which("gcc"):
+            messagebox.showerror(
+                "gcc no encontrado",
+                "No se encontró gcc en el PATH.\n"
+                "Instala MinGW/MSYS2 (Windows) o gcc (Linux/macOS) para usar esta función."
+            )
+            return
+
+        self.notebook.select(self.tab_consola)
+        self.consola.insert(tk.END, "\n=== COMPILAR Y EJECUTAR C (gcc) ===\n")
+
+        try:
+            # Crear archivos temporales
+            tmp_dir  = tempfile.mkdtemp()
+            src_path = _os.path.join(tmp_dir, "out.c")
+            exe_path = _os.path.join(tmp_dir, "out")
+            if sys.platform == "win32":
+                exe_path += ".exe"
+
+            with open(src_path, "w", encoding="utf-8") as f:
+                f.write(c_code)
+
+            # ── compilar ─────────────────────────────────────────────────────
+            gcc_flags = ["-Wall", "-o", exe_path, src_path, "-lm"]
+            result = subprocess.run(
+                ["gcc"] + gcc_flags,
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode != 0:
+                self.consola.insert(tk.END, "❌ Error de compilación:\n")
+                self.consola.insert(tk.END, result.stderr)
+                return
+
+            self.consola.insert(tk.END, "✅ Compilación exitosa.\n\n")
+
+            # ── ejecutar ──────────────────────────────────────────────────────
+            run_result = subprocess.run(
+                [exe_path],
+                capture_output=True, text=True, timeout=30,
+                encoding="utf-8", errors="replace"
+            )
+            if run_result.stdout:
+                self.consola.insert(tk.END, run_result.stdout)
+            if run_result.stderr:
+                self.consola.insert(tk.END, "\n--- stderr ---\n")
+                self.consola.insert(tk.END, run_result.stderr)
+            if run_result.returncode != 0:
+                self.consola.insert(tk.END, f"\n[Proceso terminó con código {run_result.returncode}]\n")
+            else:
+                self.consola.insert(tk.END, "\n✅ Ejecución completada.\n")
+
+        except subprocess.TimeoutExpired:
+            self.consola.insert(tk.END, "❌ Tiempo de ejecución excedido (30 s)\n")
+        except Exception as e:
+            self.consola.insert(tk.END, f"❌ {e}\n")
+        finally:
+            try:
+                import shutil as _shutil
+                _shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+    def guardar_c(self):
+        """Guarda el código C generado en un archivo .c"""
+        c_content = self.output_c_code.get("1.0", tk.END).strip()
+        if not c_content or c_content.startswith("// No hay"):
+            messagebox.showwarning("Aviso", "Primero genera el código C (F9)")
+            return
+
+        tab_actual = self.get_tab_actual()
+        if tab_actual and tab_actual.ruta_actual:
+            base_name   = os.path.splitext(os.path.basename(tab_actual.ruta_actual))[0]
+            default_dir = os.path.dirname(tab_actual.ruta_actual)
+        else:
+            base_name   = "output"
+            default_dir = os.getcwd()
+
+        ruta_c = filedialog.asksaveasfilename(
+            initialdir=default_dir,
+            initialfile=f"{base_name}.c",
+            defaultextension=".c",
+            filetypes=[("C Source Files", "*.c"), ("All Files", "*.*")]
+        )
+        if ruta_c:
+            try:
+                with open(ruta_c, "w", encoding="utf-8") as f:
+                    f.write(c_content)
+                self.consola.insert(tk.END, f">> Código C guardado: {os.path.basename(ruta_c)}\n")
+                messagebox.showinfo("Éxito", f"Archivo guardado:\n{ruta_c}")
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo guardar: {e}")
+
     def guardar_asm(self):
         """Guarda el código ensamblador en un archivo .asm"""
         asm_content = self.output_asm.get("1.0", tk.END).strip()
@@ -2852,6 +2985,7 @@ Un IDE completo para programación en Python
         self.output_c.delete("1.0", tk.END)
         self.output_asm.delete("1.0", tk.END)
         self.output_tac.delete("1.0", tk.END)
+        self.output_c_code.delete("1.0", tk.END)
         self.consola.insert(tk.END, ">> Área de trabajo limpiada.\n")
     
     # === NUEVOS MÉTODOS - QUICK WINS ===

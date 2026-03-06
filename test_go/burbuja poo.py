@@ -4,7 +4,7 @@ class Ordenador:
         self.datos = datos
 
     def burbuja(self, ascendente=True):
-        """Implementación del algoritmo de burbuja."""
+        """Implementación el algoritmo de burbuja."""
         n = len(self.datos)
         # Hacemos una copia para no modificar la lista original si no queremos
         lista = self.datos[:] 
@@ -40,3 +40,4 @@ print(f"Lista ordenada: {resultado}")
 # 4. Ordenamos de forma descendente
 resultado_desc = mi_ordenador.burbuja(ascendente=False)
 print(f"Lista descendente: {resultado_desc}")
+
